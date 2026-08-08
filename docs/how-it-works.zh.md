@@ -206,6 +206,82 @@ authorize()      ← 花完了没有？该用哪个模型？
 
 ---
 
+## 断点续跑的原理
+
+"重跑同一条命令就是续跑"不是加了个 `--resume` 开关，而是**让运行的身份可以被推导出来**。
+
+### run id 是算出来的，不是发出来的
+
+```
+runId = sha256("github:yanmxa/code-review:1:b5afa3ff…").slice(0, 12)
+          ↑平台      ↑仓库              ↑PR号 ↑head SHA
+```
+
+同一个 PR、同一个 head commit → **必然**算出同一个目录：
+
+```
+~/.code-review/runs/89acc558042e/
+├── state.json        各单元状态、累计花费、降级档位、diffHash
+├── pr.json           脱敏后的 PR 快照
+├── findings.jsonl    追加写
+├── traces/           每单元一个
+└── report.md
+```
+
+用户不需要记任何 id——因为 id 就是从他输入的东西推出来的。**PR 有了新提交（head SHA 变了）就是另一次运行**，不会拿旧结果糊弄人。
+
+### 启动时的三岔路
+
+```
+目录不存在                    → 全新运行
+目录在，且 diffHash 对得上     → 续跑
+目录在，但 diffHash 对不上     → PR 在断点之后被改过 → 丢弃重来，并告知用户
+```
+
+`diffHash` 是整个 diff 的 sha256。head SHA 相同而 diff 不同在正常情况下不会发生，但 force push 到同一个 SHA、或 GitHub 端的差异都可能造成，**宁可重来也不要把新旧结果混在一起**。
+
+### 中断的单元：重置为待办，但账不抹
+
+```ts
+for (const unit of units) {
+  if (unit.status === "in_progress") unit.status = "pending";
+}
+```
+
+崩溃时正在跑的那个单元会重跑一次。**已经花掉的钱留在账本上**——token 是真的消耗掉了，假装没花过会让预算变成谎话。
+
+### 写入顺序是核心
+
+```
+completeUnit():
+   1. findings.jsonl   ← 追加写
+   2. state.json       ← 写临时文件 + rename（原子）
+```
+
+崩在两步之间：这个单元的 state 还是 `in_progress`，重启后重置为 `pending`、重跑一次——代价是几分钱。
+
+**反过来的顺序**（先写 state 后写 findings）崩在中间会**永久丢掉一条已经付过费的发现**。宁可重算，不可丢结果。
+
+`state.json` 用「写临时文件再 rename」而不是直接覆写——rename 在 APFS/ext4 上是原子的，所以那个路径上永远是一份完整的 JSON，不会出现读到半截的情况。
+
+### 副作用：findings.jsonl 会有重复
+
+追加写是它崩溃安全的原因，代价是续跑会让同一个单元的发现写两次。**所有把发现拿给人看的地方都先 `dedupe()`**。
+
+（这里踩过坑：`code-review triage` 一开始漏了去重，TUI 里出现重复条目，补了测试。）
+
+### 实测
+
+```bash
+code-review $PR --budget 6 &
+sleep 30 && pkill -f "code-review $PR"     # 打断
+code-review $PR --budget 6                 # 同一条命令
+```
+
+结果：只重跑被打断的那一个文件，已完成的三个既不重跑也不重复计费（¥0.24 → ¥0.35）。
+
+---
+
 ## 一条发现留下的痕迹
 
 跑完之后，这条发现在四个地方留下记录：
