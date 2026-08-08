@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  addedLines,
-  commentableLines,
-  parseUnifiedDiff,
-  renderHunks,
-  snapToCommentable,
-} from "../src/platform/diff.js";
+import { addedLines, commentableLines, excerptAround, parseUnifiedDiff, renderHunks, snapToCommentable } from "../src/platform/diff.js";
 
 const SIMPLE = `diff --git a/src/cache.ts b/src/cache.ts
 index 1111111..2222222 100644
@@ -243,3 +237,42 @@ describe("comment anchoring", () => {
     expect(snapToCommentable(100, new Set([10, 11, 12]))).toBeNull();
   });
 });
+
+describe("the excerpt a finding shows", () => {
+  const file = parseUnifiedDiff(
+    [
+      "diff --git a/a.ts b/a.ts",
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1,5 +1,6 @@",
+      " one",
+      " two",
+      "-three",
+      "+THREE",
+      "+four",
+      " five",
+      " six",
+    ].join("\n"),
+  )[0]!;
+
+  it("marks the lines the comment anchors to", () => {
+    const rows = excerptAround(file.hunks, 3, undefined, 1);
+    expect(rows.filter((r) => r.anchored).map((r) => r.text)).toEqual(["THREE"]);
+  });
+
+  it("keeps the deleted line, which is the code being replaced", () => {
+    // A suggested replacement is unreadable without what it replaces, and a
+    // deletion carries no post-image number to filter on.
+    expect(excerptAround(file.hunks, 3, undefined, 1).map((r) => r.text)).toContain("three");
+  });
+
+  it("surrounds the anchor with context on both sides", () => {
+    const rows = excerptAround(file.hunks, 3, undefined, 1);
+    expect(rows.map((r) => r.text)).toContain("two");
+    expect(rows.map((r) => r.text)).toContain("four");
+  });
+
+  it("returns nothing when the anchor is outside every hunk", () => {
+    expect(excerptAround(file.hunks, 900, undefined)).toEqual([]);
+  });
+})

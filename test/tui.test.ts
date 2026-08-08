@@ -275,7 +275,7 @@ describe("TriagePanel", () => {
   function mount(findings: Finding[]) {
     const terminal = new FakeTerminal(120, 30);
     const tui = new TuiAltScreen(terminal);
-    const panel = new TriagePanel(tui, findings, "en", 3.4, 10, "CNY", {
+    const panel = new TriagePanel(tui, findings, "en", 3.4, 10, "CNY", [], {
       onPost: async () => {},
       onTrace: () => {},
       onQuit: () => {},

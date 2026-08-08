@@ -1,4 +1,4 @@
-import type { DiffFile, DiffHunk, DiffLine, FileChangeKind } from "../types.js";
+import type { DiffFile, DiffHunk, DiffLine, DiffLineKind, FileChangeKind } from "../types.js";
 
 /**
  * Unified-diff parser.
@@ -254,4 +254,40 @@ export function snapToCommentable(
     if (commentable.has(line + d)) return line + d;
   }
   return null;
+}
+
+/**
+ * The changed lines a finding points at, with a little of what surrounds them.
+ *
+ * A suggested replacement is not reviewable on its own — the reader has to see
+ * what it replaces, and a line number alone means leaving the tool to go and
+ * look. Numbers are the post-image ones the comment anchors to, so they match
+ * what the platform will show once the comment is posted.
+ */
+export function excerptAround(
+  hunks: DiffHunk[],
+  line: number,
+  endLine: number | undefined,
+  context = 3,
+): { line?: number; kind: DiffLineKind; text: string; anchored: boolean }[] {
+  const last = endLine ?? line;
+  const flat = hunks.flatMap((hunk) => hunk.lines);
+  // Deletions carry no post-image number, so they are kept by position rather
+  // than by number: dropping them would hide the very code being replaced.
+  const near = flat.filter((entry) => {
+    if (entry.newLine === undefined) return false;
+    return entry.newLine >= line - context && entry.newLine <= last + context;
+  });
+  if (near.length === 0) return [];
+
+  const first = flat.indexOf(near[0]!);
+  const stop = flat.indexOf(near[near.length - 1]!);
+  const slice = flat.slice(Math.max(0, first - 1), stop + 1);
+
+  return slice.map((entry) => ({
+    line: entry.newLine,
+    kind: entry.kind,
+    text: entry.text,
+    anchored: entry.newLine !== undefined && entry.newLine >= line && entry.newLine <= last,
+  }));
 }

@@ -1,5 +1,5 @@
 import type { Language } from "../config.js";
-import type { Confidence, Severity, SkipReason } from "../types.js";
+import type { Certainty, Confidence, Severity, SkipReason } from "../types.js";
 
 type Dict = Record<Language, string>;
 
@@ -12,6 +12,7 @@ export const MESSAGES = {
   noFindings: { zh: "本次评审没有发现需要报告的问题。", en: "This review found nothing worth reporting." },
   summaryHeading: { zh: "概览", en: "Summary" },
   evidenceHeading: { zh: "证据", en: "Evidence" },
+  certaintyPrefix: { zh: "模型自评：", en: "model says: " },
   suggestionHeading: { zh: "建议改法", en: "Suggested change" },
   traceLabel: { zh: "追踪", en: "Trace" },
   appendixHeading: { zh: "附录", en: "Appendix" },
@@ -56,6 +57,22 @@ export function confidenceLabel(confidence: Confidence, lang: Language): string 
     reference: { zh: "仅供参考", en: "reference" },
   };
   return pick(labels[confidence], lang);
+}
+
+/**
+ * The model's own reading, worded so it cannot be mistaken for the tier.
+ *
+ * "高置信度" next to "仅供参考" would read as a contradiction and invite exactly
+ * the promotion the tiers exist to prevent, so this vocabulary stays away from
+ * the word: what the model has is a degree of sureness, not a confidence level.
+ */
+export function certaintyLabel(certainty: Certainty, lang: Language): string {
+  const labels: Record<Certainty, Dict> = {
+    certain: { zh: "确定", en: "sure" },
+    likely: { zh: "多半", en: "probably" },
+    unsure: { zh: "拿不准", en: "not sure" },
+  };
+  return pick(labels[certainty], lang);
 }
 
 export function skipLabel(reason: SkipReason, lang: Language): string {

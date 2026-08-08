@@ -80,6 +80,7 @@ export interface RawFinding {
   suggestion?: string;
   supportingToolCalls?: string[];
   reasoning?: string;
+  certainty?: string;
 }
 
 export interface SubmitDetails {

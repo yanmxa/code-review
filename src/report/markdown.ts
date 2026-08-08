@@ -1,7 +1,7 @@
 import { type BudgetUnit, formatBudget, formatTokenCount } from "../budget/limit.js";
 import type { CheckSummary } from "../platform/adapter.js";
 import type { Language } from "../config.js";
-import { confidenceLabel, severityLabel, skipLabel, t } from "../i18n/messages.js";
+import { certaintyLabel, confidenceLabel, severityLabel, skipLabel, t } from "../i18n/messages.js";
 import type {
   Confidence,
   Evidence,
@@ -133,8 +133,15 @@ export function renderFinding(finding: Finding, lang: Language): string {
   parts.push(
     `### ${finding.id} · ${tierGlyph(finding.confidence)} \`${finding.path}:${range}\` — ${escapeMd(finding.title)}`,
   );
+  // Certainty is the model's own view, so it appears only where evidence has
+  // not already settled the question — beside a compiler diagnostic it would
+  // read as doubt about a fact.
+  const certainty =
+    finding.confidence === "reference" && finding.certainty && finding.certainty !== "certain"
+      ? ` · ${t("certaintyPrefix", lang)}${certaintyLabel(finding.certainty, lang)}`
+      : "";
   parts.push(
-    `**${severityLabel(finding.severity, lang)}** · ${confidenceLabel(finding.confidence, lang)}`,
+    `**${severityLabel(finding.severity, lang)}** · ${confidenceLabel(finding.confidence, lang)}${certainty}`,
   );
   parts.push(finding.body);
 

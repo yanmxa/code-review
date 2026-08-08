@@ -16,6 +16,7 @@ import { clip, keyHints, pad, spread, windowAround, wrap } from "./widgets.js";
 export class TraceView implements Component {
   private cursor = 0;
   private readonly expanded = new Set<number>();
+  private detailOffset = 0;
 
   constructor(
     private readonly tui: TUI,
@@ -27,11 +28,26 @@ export class TraceView implements Component {
 
   invalidate(): void {}
 
+  /**
+   * Arrows move between events, or through one when it is open.
+   *
+   * An expanded payload used to be cut at whatever fit and there was no way to
+   * reach the rest — a diff and a model's full reply both run well past a
+   * screen, so the trace held the evidence and would not show it. Opening a row
+   * hands the arrows to its contents; closing it hands them back.
+   */
   handleInput(data: string): void {
-    if (matchesKey(data, Key.up) || data === "k") this.cursor = Math.max(0, this.cursor - 1);
-    else if (matchesKey(data, Key.down) || data === "j")
-      this.cursor = Math.min(this.events.length - 1, this.cursor + 1);
-    else if (matchesKey(data, Key.enter) || data === " ") this.toggle();
+    const inside = this.expanded.has(this.cursor);
+    const up = matchesKey(data, Key.up) || data === "k";
+    const down = matchesKey(data, Key.down) || data === "j";
+
+    if (up) {
+      if (inside && this.detailOffset > 0) this.detailOffset--;
+      else if (!inside) this.cursor = Math.max(0, this.cursor - 1);
+    } else if (down) {
+      if (inside) this.detailOffset++;
+      else this.cursor = Math.min(this.events.length - 1, this.cursor + 1);
+    } else if (matchesKey(data, Key.enter) || data === " ") this.toggle();
     else if (data === "q" || matchesKey(data, Key.escape)) this.onClose();
     else return;
     this.tui.requestRender();
@@ -45,7 +61,12 @@ export class TraceView implements Component {
     out.push(theme.accent(`╭─ ${theme.strong(clip(this.title, inner - 4))} ${"─".repeat(Math.max(0, inner - clip(this.title, inner - 4).length - 3))}╮`));
 
     const lines: string[] = [];
-    const { start, end } = windowAround(this.events.length, this.cursor, height);
+    // An open row is given the rest of the box: its payload is what the reader
+    // came for, and centring the cursor would spend half the space on events
+    // above it that are one line each.
+    const { start, end } = this.expanded.has(this.cursor)
+      ? { start: this.cursor, end: this.events.length }
+      : windowAround(this.events.length, this.cursor, height);
     for (let i = start; i < end; i++) {
       const event = this.events[i];
       if (!event) continue;
@@ -54,8 +75,16 @@ export class TraceView implements Component {
       lines.push(marker + clip(this.summarize(event), inner - 1));
 
       if (this.expanded.has(i)) {
-        for (const line of this.detail(event, inner - 4)) {
+        const body = this.detail(event, inner - 4);
+        // Clamp here rather than on the keypress: only rendering knows how many
+        // rows are left, and scrolling past the end would show an empty box.
+        const room = Math.max(1, height - (i - start) - 2);
+        this.detailOffset = Math.min(this.detailOffset, Math.max(0, body.length - room));
+        for (const line of body.slice(this.detailOffset, this.detailOffset + room)) {
           lines.push(`   ${theme.dim(clip(line, inner - 3))}`);
+        }
+        if (body.length > room) {
+          lines.push(theme.dim(`   ── ${this.detailOffset + room}/${body.length} ──`));
         }
       }
     }
@@ -64,9 +93,10 @@ export class TraceView implements Component {
       out.push(theme.accent("│") + pad(clip(line, inner), inner) + theme.accent("│"));
     }
 
+    const open = this.expanded.has(this.cursor);
     const hints = keyHints([
-      ["↑↓", this.lang === "zh" ? "移动" : "move"],
-      ["enter", this.lang === "zh" ? "展开" : "expand"],
+      ["↑↓", open ? (this.lang === "zh" ? "滚动" : "scroll") : this.lang === "zh" ? "移动" : "move"],
+      ["enter", open ? (this.lang === "zh" ? "收起" : "collapse") : this.lang === "zh" ? "展开" : "expand"],
       ["esc", this.lang === "zh" ? "关闭" : "close"],
     ]);
     out.push(theme.accent("│") + pad(spread("", hints, inner), inner) + theme.accent("│"));
@@ -107,18 +137,31 @@ export class TraceView implements Component {
     }
   }
 
-  /** The full payload, for the row the user asked about. */
+  /**
+   * The full payload, for the row the user asked about.
+   *
+   * Messages lead. The system prompt is 38 lines and identical for every file
+   * in the run, so putting it first pushed the diff — the whole reason anyone
+   * opens a trace — past the bottom of the overlay, and it read as though no
+   * user message had been sent at all. It is still here, below, because "what
+   * exactly was this model asked" has to be answerable; it is just no longer
+   * the thing standing in front of the answer.
+   */
   private detail(event: TraceEvent, width: number): string[] {
     switch (event.type) {
       case "llm_request":
         return [
-          "── system prompt ──",
-          ...wrap(event.systemPrompt, width).slice(0, 40),
-          "── messages ──",
-          ...wrap(JSON.stringify(event.messages, null, 1), width).slice(0, 80),
+          theme.dim(`── messages (${event.messages.length}) ──`),
+          ...event.messages.flatMap((message) => [
+            theme.accent(`  ${roleOf(message)}:`),
+            ...wrap(textOf(message), width).slice(0, 200),
+          ]),
+          "",
+          theme.dim("── system prompt ──"),
+          ...wrap(event.systemPrompt, width).slice(0, 60),
         ];
       case "llm_response":
-        return wrap(JSON.stringify(event.content, null, 1), width).slice(0, 60);
+        return wrap(textOf({ content: event.content }), width).slice(0, 80);
       case "tool_call":
         return wrap(JSON.stringify(event.params, null, 1), width).slice(0, 30);
       case "tool_result":
@@ -131,9 +174,37 @@ export class TraceView implements Component {
   private toggle(): void {
     if (this.expanded.has(this.cursor)) this.expanded.delete(this.cursor);
     else this.expanded.add(this.cursor);
+    this.detailOffset = 0;
   }
 }
 
 function firstLine(text: string): string {
   return text.split("\n").find((line) => line.trim().length > 0) ?? "";
+}
+
+function roleOf(message: unknown): string {
+  const role = (message as { role?: unknown }).role;
+  return typeof role === "string" ? role : "message";
+}
+
+/**
+ * A message's text as text.
+ *
+ * `JSON.stringify` on a content array turns a unified diff into one line with
+ * literal `\n` between every row of it — technically the whole payload, and
+ * unreadable, which for an audit trail is close to not having it. Anything that
+ * is not a text part still falls back to JSON so nothing is silently hidden.
+ */
+function textOf(message: unknown): string {
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return JSON.stringify(content ?? message, null, 1);
+
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" ? text : JSON.stringify(part, null, 1);
+    })
+    .join("\n");
 }

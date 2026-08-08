@@ -136,6 +136,17 @@ export type Severity = "blocker" | "major" | "minor" | "nit";
 export type Confidence = "adoptable" | "reference";
 
 /**
+ * How sure the model says it is — its own view, never a verdict.
+ *
+ * Deliberately not called confidence. `Confidence` above is the tier, and it is
+ * decided by evidence anyone can re-derive; this is the model grading its own
+ * homework. Keeping the two words apart in the code is the same reason they are
+ * kept apart on screen: a "high confidence" badge sitting inside the
+ * reference group would quietly undo the distinction the tiers exist to make.
+ */
+export type Certainty = "certain" | "likely" | "unsure";
+
+/**
  * Why we believe a finding.
  *
  * `rule` and `static` come from deterministic machinery and are the only kinds
@@ -161,6 +172,8 @@ export interface Finding {
   suggestion?: string;
   evidence: Evidence[];
   confidence: Confidence;
+  /** Model's own reading of how solid this is. Orders findings; never promotes one. */
+  certainty?: Certainty;
   /** Stable identity for dedupe and post-idempotency. */
   fingerprint: string;
   /** Relative path of the trace file that produced this finding. */

@@ -168,6 +168,7 @@ async function triageLoop(tui: TUI, context: TriageContext): Promise<void> {
         context.report.spent,
         context.report.limit,
         context.report.unit,
+        context.snapshot.files,
         {
           onQuit: () => resolve(),
           onTrace: (finding) => showTrace(tui, context, finding, lang),

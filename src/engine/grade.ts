@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { commentableLines, snapToCommentable } from "../platform/diff.js";
 import type { EvidenceKind } from "../tools/spec.js";
 import type { RawFinding } from "../tools/spec.js";
-import type { Confidence, Evidence, Finding, ReviewUnit, Severity } from "../types.js";
+import type { Certainty, Confidence, Evidence, Finding, ReviewUnit, Severity } from "../types.js";
 import type { RuleHit } from "./rules-engine.js";
 
 /** How far from a rule/static hit a finding may sit and still claim its evidence. */
@@ -106,9 +106,21 @@ export function gradeAgentFinding(raw: RawFinding, context: GradeContext): Findi
     tracePath: context.tracePath,
     source: "agent",
   };
+  finding.certainty = normalizeCertainty(raw.certainty);
   if (raw.endLine !== undefined && raw.endLine > line) finding.endLine = Math.round(raw.endLine);
   if (raw.suggestion?.trim()) finding.suggestion = raw.suggestion.trim();
   return finding;
+}
+
+/**
+ * Read back the model's own certainty, defaulting to the cautious end.
+ *
+ * A missing or unrecognised value means the model did not commit to one, and
+ * the honest reading of that is "unsure" rather than a free pass — the field
+ * is where it says how much to trust it, so silence is not a strong claim.
+ */
+export function normalizeCertainty(value: string | undefined): Certainty {
+  return value === "certain" || value === "likely" ? value : "unsure";
 }
 
 /**
@@ -148,6 +160,10 @@ export function dedupe(findings: Finding[]): Finding[] {
       source: existing.source === finding.source ? existing.source : "merged",
     };
     if (!merged.suggestion && finding.suggestion) merged.suggestion = finding.suggestion;
+    merged.certainty =
+      certaintyRank(existing.certainty) <= certaintyRank(finding.certainty)
+        ? existing.certainty
+        : finding.certainty;
     merged.confidence = confidenceOf(merged.evidence);
     byFingerprint.set(finding.fingerprint, merged);
   }
@@ -157,6 +173,10 @@ export function dedupe(findings: Finding[]): Finding[] {
     (a, b) =>
       tierRank(a.confidence) - tierRank(b.confidence) ||
       severityRank(a.severity) - severityRank(b.severity) ||
+      // Among equally serious claims, the one the model could actually confirm
+      // is worth reading first. This only ever reorders within a tier: the tier
+      // itself is decided by evidence, and self-assessment is not evidence.
+      certaintyRank(a.certainty) - certaintyRank(b.certainty) ||
       a.path.localeCompare(b.path) ||
       a.line - b.line,
   );
@@ -187,6 +207,11 @@ const SEVERITY_ORDER: Severity[] = ["blocker", "major", "minor", "nit"];
 
 function severityRank(severity: Severity): number {
   return SEVERITY_ORDER.indexOf(severity);
+}
+
+/** Rules are deterministic, so a finding with no stated certainty ranks as certain. */
+function certaintyRank(certainty: Certainty | undefined): number {
+  return certainty === undefined || certainty === "certain" ? 0 : certainty === "likely" ? 1 : 2;
 }
 
 function tierRank(confidence: Confidence): number {

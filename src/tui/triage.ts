@@ -1,12 +1,28 @@
 import { type Component, Key, matchesKey, type TUI } from "@earendil-works/pi-tui";
 import type { Language } from "../config.js";
-import { confidenceLabel, severityLabel } from "../i18n/messages.js";
-import type { Confidence, Evidence, Finding } from "../types.js";
+import { certaintyLabel, confidenceLabel, severityLabel } from "../i18n/messages.js";
+import type { Confidence, DiffFile, Evidence, Finding } from "../types.js";
 import { type BudgetUnit, formatBudget } from "../budget/limit.js";
+import { excerptAround } from "../platform/diff.js";
 import { budgetGauge, confidenceGlyph, GLYPH, severityStyle, theme } from "./theme.js";
 import { clip, columns, keyHints, pad, panel, spread, windowAround, wrap } from "./widgets.js";
 
 type Row = { kind: "header"; label: string; tier: Confidence } | { kind: "finding"; finding: Finding };
+
+/**
+ * How sure the model says it is, shown only where the question is open.
+ *
+ * An adoptable finding is backed by something anyone can re-derive, so the
+ * model's opinion of it adds nothing and "拿不准" beside a compiler diagnostic
+ * would be actively confusing. Inside the reference group it is the only thing
+ * separating four otherwise equal-looking claims. "certain" stays unmarked so
+ * the mark means "read this one more carefully", not decoration.
+ */
+function certaintyNote(finding: Finding, lang: Language): string {
+  if (finding.confidence !== "reference") return "";
+  if (!finding.certainty || finding.certainty === "certain") return "";
+  return theme.dim(` · ${certaintyLabel(finding.certainty, lang)}`);
+}
 
 export interface TriageActions {
   onPost(selected: Finding[]): Promise<void>;
@@ -35,6 +51,8 @@ export class TriagePanel implements Component {
     private readonly spent: number,
     private readonly limit: number,
     private readonly unit: BudgetUnit,
+    /** The PR's parsed diff, so a finding can show the lines it is about. */
+    private readonly files: DiffFile[],
     private readonly actions: TriageActions,
   ) {
     this.rebuild();
@@ -131,9 +149,9 @@ export class TriagePanel implements Component {
       const isCursor = i === this.cursor;
       const checkbox = this.selected.has(finding.fingerprint) ? theme.ok("[x]") : theme.dim("[ ]");
       const location = `${finding.path.split("/").pop()}:${finding.line}`;
-      const label = `${checkbox} ${confidenceGlyph(finding.confidence)} ${severityStyle(finding.severity)(
-        location,
-      )} ${finding.title}`;
+      const label =
+        `${checkbox} ${confidenceGlyph(finding.confidence)} ${severityStyle(finding.severity)(location)} ` +
+        `${finding.title}${certaintyNote(finding, this.lang)}`;
 
       out.push(
         isCursor
@@ -158,11 +176,29 @@ export class TriagePanel implements Component {
     out.push(
       theme.dim(`${finding.id} · `) +
         severityStyle(finding.severity)(severityLabel(finding.severity, this.lang)) +
-        theme.dim(` · ${confidenceLabel(finding.confidence, this.lang)}`),
+        theme.dim(` · ${confidenceLabel(finding.confidence, this.lang)}`) +
+        certaintyNote(finding, this.lang),
     );
     out.push(theme.accent(clip(`${finding.path}:${finding.line}`, width)));
     out.push("");
     out.push(...wrap(finding.body, width).map((line) => theme.text(line)));
+
+    // The code being talked about, before anything is proposed for it. A
+    // suggested replacement with nothing to compare against asks the reader to
+    // leave and go find the file, which is most of the work of reviewing.
+    const excerpt = this.excerptFor(finding);
+    if (excerpt.length > 0) {
+      out.push("");
+      out.push(theme.dim(this.lang === "zh" ? "改动前后" : "In the diff"));
+      for (const entry of excerpt) {
+        const marker = entry.kind === "add" ? "+" : entry.kind === "del" ? "-" : " ";
+        const number = entry.line === undefined ? "    " : String(entry.line).padStart(4);
+        const paint =
+          entry.kind === "add" ? theme.ok : entry.kind === "del" ? theme.danger : theme.dim;
+        const body = `${number} ${marker}${entry.text}`;
+        out.push(entry.anchored ? theme.accent("▸") + paint(clip(body, width - 1)) : ` ${paint(clip(body, width - 1))}`);
+      }
+    }
 
     if (finding.suggestion) {
       out.push("");
@@ -216,6 +252,13 @@ export class TriagePanel implements Component {
       this.status = theme.danger(`${(error as Error).message}`);
     }
     this.tui.requestRender();
+  }
+
+  /** The changed lines this finding anchors to, or nothing if the diff has moved on. */
+  private excerptFor(finding: Finding) {
+    const file = this.files.find((entry) => entry.path === finding.path);
+    if (!file) return [];
+    return excerptAround(file.hunks, finding.line, finding.endLine).slice(0, 14);
   }
 
   private rebuild(): void {

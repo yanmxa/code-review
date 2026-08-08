@@ -60,6 +60,23 @@ export const submitFindingsTool = defineReviewTool({
             reasoning: Type.Optional(
               Type.String({ description: "Short note on how you concluded this." }),
             ),
+            // Optional on purpose. Required, a model that simply omitted it
+            // failed schema validation and lost the entire submission — every
+            // finding for that file, to gain one adjective. Omitting it is read
+            // as "unsure", so silence costs the finding its place in the order
+            // rather than its existence.
+            certainty: Type.Optional(
+              StringEnum(["certain", "likely", "unsure"], {
+              description:
+                "How sure you are that this is really a problem. certain: you have seen enough to " +
+                "be sure. likely: it is probably wrong but you could not confirm every assumption. " +
+                "unsure: it looks off, and it could equally be deliberate or explained by code you " +
+                "did not read. This orders findings for the reader; it does not decide whether a " +
+                "finding is presented as directly adoptable, so answering honestly costs you " +
+                "nothing. \"unsure\" is a useful answer, not a failed one — say what you could not " +
+                "check in `reasoning`.",
+              }),
+            ),
           }),
         ),
         summary: Type.String({ description: "One sentence on the overall state of this file." }),
