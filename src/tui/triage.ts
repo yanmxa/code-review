@@ -7,7 +7,9 @@ import { excerptAround } from "../platform/diff.js";
 import { budgetGauge, confidenceGlyph, GLYPH, severityStyle, theme } from "./theme.js";
 import { clip, columns, keyHints, pad, panel, spread, windowAround, wrap } from "./widgets.js";
 
-type Row = { kind: "header"; label: string; tier: Confidence } | { kind: "finding"; finding: Finding };
+type Row =
+  | { kind: "header"; label: string; tier: Confidence; legend?: string }
+  | { kind: "finding"; finding: Finding };
 
 /**
  * How sure the model says it is, shown only where the question is open.
@@ -56,6 +58,7 @@ export class TriagePanel implements Component {
   private cursor = 0;
   private readonly selected = new Set<string>();
   private status?: string;
+  private detailOffset = 0;
 
   constructor(
     private readonly tui: TUI,
@@ -94,6 +97,11 @@ export class TriagePanel implements Component {
 
     if (matchesKey(data, Key.up) || data === "k") this.move(-1);
     else if (matchesKey(data, Key.down) || data === "j") this.move(1);
+    // The detail pane is taller than most findings and shorter than some. Its
+    // own keys, because the arrows belong to the list — losing the cursor to
+    // read an evidence line would be a bad trade.
+    else if (matchesKey(data, Key.pageUp) || data === "K") this.detailOffset = Math.max(0, this.detailOffset - 5);
+    else if (matchesKey(data, Key.pageDown) || data === "J") this.detailOffset += 5;
     else if (data === " ") this.toggleCurrent();
     else if (data === "a") this.selectTier("adoptable");
     else if (data === "A") this.selectAll();
@@ -152,9 +160,12 @@ export class TriagePanel implements Component {
       if (!row) continue;
 
       if (row.kind === "header") {
-        out.push(
-          (row.tier === "adoptable" ? theme.ok.bold : theme.warn.bold)(clip(row.label, width)),
-        );
+        const paint = row.tier === "adoptable" ? theme.ok.bold : theme.warn.bold;
+        const legend =
+          row.legend && visibleWidth(row.label) + visibleWidth(row.legend) + 2 <= width
+            ? `  ${row.legend}`
+            : "";
+        out.push(paint(clip(row.label, width)) + legend);
         continue;
       }
 
@@ -162,14 +173,8 @@ export class TriagePanel implements Component {
       const isCursor = i === this.cursor;
       const checkbox = this.selected.has(finding.fingerprint) ? theme.ok("[x]") : theme.dim("[ ]");
       const location = `${finding.path.split("/").pop()}:${finding.line}`;
-      const head = `${checkbox} ${confidenceGlyph(finding.confidence)} ${severityStyle(finding.severity)(location)} `;
-      // The mark is placed against the right edge and the title clipped to fit.
-      // Appended after the title it was the first thing a long title pushed off
-      // the row — losing exactly the column the reader is scanning.
-      const mark = certaintyNote(finding, this.lang);
-      const room = width - 1 - visibleWidth(head) - visibleWidth(mark);
-      const title = clip(finding.title, Math.max(4, room));
-      const label = head + title + " ".repeat(Math.max(0, room - visibleWidth(title))) + mark;
+      const head = `${checkbox} ${confidenceGlyph(finding.confidence, finding.certainty)} ${severityStyle(finding.severity)(location)} `;
+      const label = head + clip(finding.title, Math.max(4, width - 1 - visibleWidth(head)));
 
       out.push(
         isCursor
@@ -208,7 +213,7 @@ export class TriagePanel implements Component {
     out.push(label(zh ? "严重级" : "Severity") + severityStyle(finding.severity)(severityLabel(finding.severity, this.lang)));
     out.push(
       label(zh ? "置信度" : "Confidence") +
-        confidenceGlyph(finding.confidence) +
+        confidenceGlyph(finding.confidence, finding.certainty) +
         ` ${confidenceLabel(finding.confidence, this.lang)}` +
         certaintyNote(finding, this.lang),
     );
@@ -250,13 +255,20 @@ export class TriagePanel implements Component {
       }
     }
 
+    const room = Math.max(1, height - 2);
+    // Clamped against the content, not the keypress: only rendering knows how
+    // much room is left, and pinning the trace to the foot had been quietly
+    // eating whatever did not fit above it — evidence sections vanished with
+    // nothing to say they existed.
+    this.detailOffset = Math.min(this.detailOffset, Math.max(0, out.length - room));
+    const body = out.slice(this.detailOffset, this.detailOffset + room);
+    const more = out.length > room ? theme.dim(`  ${this.detailOffset + room}/${out.length}  `) : "";
     const footer = [
-      theme.dim("─".repeat(Math.max(0, width))),
+      theme.dim("─".repeat(Math.max(0, width - visibleWidth(more)))) + more,
       `${theme.accent("t")} ${theme.dim(zh ? "查看完整 trace" : "open full trace")}   ` +
         theme.dim(clip(finding.tracePath, Math.max(0, width - 20))),
     ];
-    const body = out.slice(0, Math.max(0, height - footer.length));
-    const gap = Math.max(0, height - footer.length - body.length);
+    const gap = Math.max(0, room - body.length);
     return [...body, ...Array<string>(gap).fill(""), ...footer];
   }
 
@@ -265,6 +277,7 @@ export class TriagePanel implements Component {
       ["↑↓", this.lang === "zh" ? "移动" : "move"],
       ["space", this.lang === "zh" ? "选中" : "toggle"],
       ["a", this.lang === "zh" ? "全选可采纳" : "all adoptable"],
+      ["J/K", this.lang === "zh" ? "翻详情" : "scroll"],
       ["t", "trace"],
       ["p", this.lang === "zh" ? "回评" : "post"],
       ["q", this.lang === "zh" ? "退出" : "quit"],
@@ -315,7 +328,13 @@ export class TriagePanel implements Component {
       this.rows.push({
         kind: "header",
         tier: "reference",
-        label: `${GLYPH.reference} ${this.lang === "zh" ? "仅供参考" : "REFERENCE"} (${reference.length})`,
+        label:
+          `${GLYPH.reference} ${this.lang === "zh" ? "仅供参考" : "REFERENCE"} (${reference.length})`,
+        // Explains the three marks below it, and is dropped whole rather than
+        // clipped: half a legend is worse than none.
+        legend: theme.dim(
+          `${GLYPH.sure}${certaintyLabel("certain", this.lang)} ${GLYPH.likely}${certaintyLabel("likely", this.lang)} ${GLYPH.reference}${certaintyLabel("unsure", this.lang)}`,
+        ),
       });
       for (const finding of reference) this.rows.push({ kind: "finding", finding });
     }
@@ -323,6 +342,7 @@ export class TriagePanel implements Component {
 
   /** Move the cursor, skipping group headers in the direction of travel. */
   private move(delta: number): void {
+    this.detailOffset = 0;
     let next = this.cursor;
     for (let step = 0; step < this.rows.length; step++) {
       next += delta;

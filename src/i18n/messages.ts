@@ -69,8 +69,8 @@ export function confidenceLabel(confidence: Confidence, lang: Language): string 
 export function certaintyLabel(certainty: Certainty, lang: Language): string {
   const labels: Record<Certainty, Dict> = {
     certain: { zh: "确定", en: "sure" },
-    likely: { zh: "多半", en: "probably" },
-    unsure: { zh: "拿不准", en: "not sure" },
+    likely: { zh: "多半", en: "likely" },
+    unsure: { zh: "拿不准", en: "unsure" },
   };
   return pick(labels[certainty], lang);
 }

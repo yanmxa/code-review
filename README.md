@@ -10,7 +10,7 @@ the evidence behind it. Built on the [pi](https://github.com/earendil-works/pi) 
 - **Deterministic checks run first** — committed secrets, SQL concatenation, unsafe randomness, missing tests. These need no model, and a hit is adoptable-tier evidence
 - **One agent loop per file** — with read-only tools (read a file, search this PR's changes, run the TypeScript compiler), capped at six turns
 - **CI results go to the model too** — failing tests and their line-level errors enter the context alongside the diff, instead of being guessed at
-- **It only concludes what it can back** — machine-verifiable evidence is "adoptable", model reasoning is "for reference", and the two are never blurred
+- **It only concludes what it can back** — machine-verifiable evidence is "adoptable", model reasoning is "for reference", and the two are never blurred. Within the reference group the model also says how sure it is (`◉ sure`, `◐ likely`, `○ unsure`), which orders the list and never promotes anything
 - **A rejected comment is never raised again** — deleting or resolving one is a permanent no
 - **You can supply what the PR does not say** — `--prompt "this is a revert of #892"` or `"the retry loop is deliberate"`, and every file is reviewed knowing it
 
@@ -36,8 +36,8 @@ export OPENAI_API_KEY=sk-...           # or MOONSHOT / ANTHROPIC / OPENROUTER
 gh auth login                          # or export GITHUB_TOKEN
 
 code-review auth                       # confirm credentials are found
-code-review config                     # see the budget and model ladder it will use
-code-review https://github.com/yanmxa/code-review/pull/1 --budget 6
+code-review init                       # pick a budget and a model, interactively
+code-review https://github.com/yanmxa/code-review/pull/1
 ```
 
 Prefer not to install globally: `npm install && npm run dev -- <pr-url>`.
@@ -63,19 +63,22 @@ code-review $PR --budget 0.30 --fresh --no-tui | grep downgrade
 # Hard stop: the first file blows the budget; the rest still run the free rules
 code-review $PR --budget 0.12 --fresh --no-tui ; echo "exit $?"   # 3 = budget exhausted
 
-# Redaction: the planted AWS key is nowhere in any artifact
+# Redaction: neither planted credential is in any artifact — prompts included
 grep -r "AKIAIOSFODNN7EXAMPLE" ~/.code-review/runs/   # no hits
+grep -r "wJalrXUtnFEMI" ~/.code-review/runs/          # no hits (the secret key)
 grep -rho "\[REDACTED:[a-z-]*:" ~/.code-review/runs/ | sort -u
 
 # Idempotent posting: run --post twice, nothing is duplicated
 code-review $PR --post && code-review $PR --post
 ```
 
-Measured: resume redoes only the interrupted file and never re-bills the
-finished ones; with `--budget 0.30` the first file already forecast ¥0.37 and
-triggered a downgrade, after which the forecast converged and the run closed at
-¥0.16; under the hard stop only 1 of 4 files reached the model, yet the report
-still carried 5 adoptable findings.
+Measured on that pull request. Resume redid only the interrupted file and
+carried the earlier spend forward rather than restarting it. With `--budget
+0.22` the first file forecast ¥0.46, which triggered a downgrade; the forecast
+then converged 0.46 → 0.27 → 0.19 and the run closed at ¥0.16, inside the limit.
+Under a hard stop 2 of 4 files reached the model, and the report still carried 8
+adoptable findings, because the deterministic checks cost nothing and kept
+running.
 
 ---
 
@@ -85,21 +88,23 @@ During the run: file progress on the left, what the agent is doing right now on
 the right, spend and current model always on top.
 
 ```
-⬢ yanmxa/code-review #1 demo: add cache eviction, session lookup, and...
-demo/planted-defects → main · 4 files                                     openai/gpt-5.4
-▱▱▱▱▱▱▱▱▱▱ ¥0.30/¥6.00 · → ¥0.34 · ↑8.7k ↓1.2k ⛁4.6k
+⬢ yanmxa/code-review #1 demo: add cache eviction, session lookup, and retry helper
+demo/planted-defects → main · 4 files                                            openai/gpt-5.4-mini
+▱▱▱▱▱▱▱▱▱▱ ¥0.04/¥1.00 · → ¥0.08 · ↑3.6k ↓654 ⛁1.5k
 
-╭─ Files ──────────────────── 2/4 ─╮╭─ Activity ───────────────────────────────────────╮
-│✓ demo/src/cache.ts            2  ││    demo/src/retry.ts (11 lines)                  │
-│✓ demo/src/config.ts           1  ││  → ts_syntax_check demo/src/retry.ts             │
-│⠋ demo/src/retry.ts               ││    no diagnostics                                │
-│◌ demo/src/session.ts             ││────────────────────                              │
-│                                  ││The condition is i <= attempts, so a default of   │
-│                                  ││3 runs four times. Checking callers…              │
-│                                  ││                                                  │
-╰──────────────────────────────────╯╰──────────────────────────────────────────────────╯
+╭─ Files ────────────────────────── 2/4 ─╮╭─ Activity ─────────────────────────────────────────────╮
+│✓ demo/src/cache.ts                  2  ││    demo/src/cache.ts                                   │
+│✓ demo/src/config.ts                 2  ││  → submit_findings 1 finding(s)                        │
+│⠹ demo/src/retry.ts                     ││    Recorded 1 finding(s) for demo/src/cache.ts.        │
+│◌ demo/src/session.ts                   ││▸ demo/src/config.ts                                    │
+│                                        ││  → submit_findings 0 finding(s)                        │
+│                                        ││    Recorded 0 finding(s) for demo/src/config.ts.       │
+│                                        ││▸ demo/src/retry.ts                                     │
+│                                        ││  → get_file demo/src/retry.ts                          │
+│                                        ││    demo/src/retry.ts                                   │
+╰────────────────────────────────────────╯╰────────────────────────────────────────────────────────╯
 
-━━━━━━━━━━━━ 2/4 · 00:00  ●4 ○0                                 ctrl+c checkpoint & quit
+━━━━━━━━━━━━ 2/4 · 00:14  ●3 ○1                                             ctrl+c checkpoint & quit
 ```
 
 <details>
@@ -108,23 +113,32 @@ demo/planted-defects → main · 4 files                                     ope
 `p` posts the selection. The right pane shows *why* a finding earned its tier.
 
 ```
-⬢ Review findings · 10 total  ● 7  ○ 3                            ▱▱▱▱▱▱▱▱▱▱ ¥0.30/¥6.00
+⬢ Review findings · 11 total  ● 8  ○ 3                                        ▰▱▱▱▱▱▱▱▱▱ ¥0.10/¥1.00
 
-╭─ Findings ──────────────── 7/10 ─╮╭─ Detail ─────────────────────────────────────────╮
-│● ADOPTABLE (7)                   ││● Credential committed in this change             │
-│▌[x] ● config.ts:4 Credential...  ││F-001 · blocker · adoptable                       │
-│ [x] ● session.ts:14 SQL buil...  ││demo/src/config.ts:4                              │
-│ [x] ● session.ts:8 Non-crypt...  ││                                                  │
-│ [x] ● cache.ts:15 New `conso...  ││The secret scanner classified this line as        │
-│ [x] ● retry.ts:1 Changed wit...  ││`aws-access-key` (the value was masked before     │
-│ [x] ● session.ts:4 Changed w...  ││any model saw it). Remove it from the code, move  │
-│ [x] ● session.ts:4 Loose equ...  ││it to an environment variable or secret manager,  │
-│                                  ││and **rotate the credential** — it is already in  │
-│○ REFERENCE (3)                   ││git history.                                      │
-│ [ ] ○ cache.ts:11 Eviction r...  ││                                                  │
-╰──────────────────────────────────╯╰──────────────────────────────────────────────────╯
+╭─ Findings ────────────────────── 8/11 ─╮╭─ Detail ───────────────────────────────────────────────╮
+│● ADOPTABLE (8)                         ││Database errors are swallowed and turned into a suc...  │
+│ [x] ● config.ts:4 Credential commi...  ││                                                        │
+│ [x] ● config.ts:5 Credential commi...  ││File        demo/src/session.ts:15                      │
+│ [x] ● session.ts:14 SQL built by s...  ││Severity    major                                       │
+│ [x] ● session.ts:8 Non-cryptograph...  ││Confidence  ◉ reference · sure                          │
+│ [x] ● cache.ts:15 New `console` lo...  ││                                                        │
+│ [x] ● retry.ts:1 Changed without a...  ││What is wrong ──────────────────────────────────────    │
+│ [x] ● session.ts:4 Changed without...  ││  If `db.query(...)` fails, this catch block            │
+│ [x] ● session.ts:4 Loose equality ...  ││  suppresses the exception and `loadSession` falls      │
+│                                        ││  through without returning anything. Callers will see  │
+│○ REFERENCE (3)  ◉sure ◐likely ○unsure  ││  a resolved `undefined` instead of a failure, which    │
+│ [ ] ◉ retry.ts:3 Retry helper perf...  ││  can mask outages and make session lookups fail open   │
+│▌[ ] ◉ session.ts:15 Database error...  ││  in code that treats "no result" the same as "could    │
+│ [ ] ◐ cache.ts:11 Cache can still ...  ││  not query". Re-throw the error or return an explicit  │
+│                                        ││  failure value.                                        │
+│                                        ││                                                        │
+│                                        ││In the diff ────────────────────────────────────────    │
+│                                        ││   11 +export async function loadSession(userId: st...  │
+│                                        ││─────────────────────────────────────────────  18/30    │
+│                                        ││t open full trace   traces/demo_src_session.ts.jsonl    │
+╰────────────────────────────────────────╯╰────────────────────────────────────────────────────────╯
 
-                    ↑↓ move · space toggle · a all adoptable · t trace · p post · q quit
+                   ↑↓ move · space toggle · a all adoptable · J/K scroll · t trace · p post · q quit
 ```
 
 </details>
@@ -133,20 +147,22 @@ demo/planted-defects → main · 4 files                                     ope
 <summary><b>Press <code>t</code> for the full trace behind any finding</b></summary>
 
 ```
-╭─ F-002 · traces/demo_src_session.ts.jsonl ───────────────────────────────────────────╮
-│▌14:39:34 ✦ rule no-test-change demo/src/session.ts:4                                 │
-│ 14:39:34 ✦ rule loose-equality demo/src/session.ts:4                                 │
-│ 14:39:34 ✦ rule insecure-random demo/src/session.ts:8                                │
-│ 14:39:34 ✦ rule sql-string-concat demo/src/session.ts:14                             │
-│ 14:39:34 ▸ unit demo/src/session.ts openai/gpt-5.4                                   │
-│ 14:39:34 ↑ llm 1 msg · 4 tools openai/gpt-5.4                                        │
-│ 14:39:36 ↓ llm toolUse ↑1.6k ↓86 $0.0053                                             │
-│ 14:39:36 → get_file {"path":"demo/src/db.ts","startLine":1}                          │
-│ 14:39:38   · File not found at head commit: demo/src/db.ts                           │
-│ 14:39:38 ↑ llm 3 msg · 4 tools openai/gpt-5.4                                        │
-│ 14:39:41 ↓ llm toolUse ↑176 ↓48 $0.0015                                              │
-│                                                    ↑↓ move · enter expand · esc close│
-╰──────────────────────────────────────────────────────────────────────────────────────╯
+╭─ F-010 · traces/demo_src_session.ts.jsonl ─────────────────────────────────────────╮
+│▌16:54:37 ✦ rule no-test-change demo/src/session.ts:4                               │
+│ 16:54:37 ✦ rule loose-equality demo/src/session.ts:4                               │
+│ 16:54:37 ✦ rule insecure-random demo/src/session.ts:8                              │
+│ 16:54:37 ✦ rule sql-string-concat demo/src/session.ts:14                           │
+│ 16:54:37 ▸ unit demo/src/session.ts openai/gpt-5.4-mini                            │
+│ 16:54:37 ↑ llm 1 msg · 4 tools openai/gpt-5.4-mini                                 │
+│ 16:54:40 ↓ llm toolUse ↑1.8k ↓64 $0.0016                                           │
+│ 16:54:40 → get_file {"path":"demo/src/session.ts","startLine":1}                   │
+│ 16:54:41   · demo/src/session.ts                                                   │
+│ 16:54:41 ↑ llm 3 msg · 4 tools openai/gpt-5.4-mini                                 │
+│ 16:54:43 ↓ llm toolUse ↑498 ↓112 $0.0010                                           │
+│ 16:54:43 → get_file {"path":"demo/src/db.ts","startLine":1}                        │
+│ 16:54:43   · File not found at head commit: demo/src/db.ts                         │
+│                                                  ↑↓ move · enter expand · esc close│
+╰────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 Which tools ran, the exact prompt sent, the raw model response, and what each
@@ -167,6 +183,10 @@ code-review runs                    # list checkpointed runs
 code-review triage <run-id>         # reopen the findings browser
 code-review trace <run-id> <unit>   # print a unit's full trace
 code-review config                  # show the configuration a run would use
+code-review init                    # write a config by answering four questions
+code-review auth                    # show which credentials were found
+code-review login openai-codex      # sign in with a ChatGPT plan instead of a key
+code-review dismissed <pr-url>      # what this repository has already rejected
 ```
 
 The options you will reach for:
@@ -259,14 +279,14 @@ cost), `pi-agent-core` (agent loop, declarative tools), `pi-tui`
 | [Design notes](docs/design.zh.md) | The tradeoffs, and what each one gave up |
 | [`examples/`](examples/) | Real artifacts: [report](examples/sample-report.en.md) · [trace](examples/sample-trace.jsonl) · [checkpoint](examples/sample-state.json) |
 
-All three are in Chinese.
+The three documents are in Chinese; the examples are not.
 
 ---
 
 ## Development
 
 ```bash
-npm test              # 280 tests, fully offline, no API key needed
+npm test              # 288 tests, fully offline, no API key needed
 npm run typecheck
 npm run dev -- <url>  # run from source via tsx
 ```

@@ -9,7 +9,7 @@
 - **确定性检查先行** —— 密钥、SQL 拼接、不安全随机数、缺测试…… 这些不需要模型，命中即为可采纳级证据
 - **每个文件一个 agent 循环** —— 带只读工具（读文件、搜索本 PR 改动、跑 TypeScript 编译器），最多 6 轮
 - **CI 结果一起给模型** —— 失败的测试和它精确到行的报错，随 diff 一起进入上下文，不用模型去猜
-- **只在有依据时下结论** —— 有确定性证据的标"可直接采纳"，模型推断的标"仅供参考"，两者不混
+- **只在有依据时下结论** —— 有确定性证据的标"可直接采纳"，模型推断的标"仅供参考"，两者不混。"仅供参考"那组里模型还会说自己有几分把握（`◉ 确定`、`◐ 多半`、`○ 拿不准`），它只决定组内排序，绝不会把哪条抬进"可直接采纳"
 - **被否决过的不再提** —— 维护者删掉或 resolve 一条评论，就是永久否决
 - **可以补充 PR 里没写的背景** —— `--prompt "这是 #892 的 revert"`、`"重试那段是故意的"`，评审每个文件时都会带上
 
@@ -35,6 +35,7 @@ export OPENAI_API_KEY=sk-...           # 也支持 MOONSHOT / ANTHROPIC / OPENRO
 gh auth login                          # 或 export GITHUB_TOKEN
 
 code-review auth                       # 确认凭据已识别
+code-review init                       # 交互式选好预算和模型
 code-review config                     # 看这次会用什么预算和降级链
 code-review https://github.com/yanmxa/code-review/pull/1 --budget 6
 ```
@@ -61,15 +62,16 @@ code-review $PR --budget 0.30 --fresh --no-tui | grep downgrade
 # 预算硬停：第一个文件就超预算，剩下的仍跑完免费的规则检查
 code-review $PR --budget 0.12 --fresh --no-tui ; echo "退出码 $?"   # 3 = 预算耗尽
 
-# 脱敏：埋进 PR 的 AWS key 在任何产物里都搜不到原值
+# 脱敏：埋进 PR 的两个凭据在任何产物里都搜不到原值（含发给模型的 prompt）
 grep -r "AKIAIOSFODNN7EXAMPLE" ~/.code-review/runs/  # 零命中
+grep -r "wJalrXUtnFEMI" ~/.code-review/runs/         # 零命中（secret key）
 grep -rho "\[REDACTED:[a-z-]*:" ~/.code-review/runs/ | sort -u
 
 # 幂等回评：连跑两次 --post，第二次不会重复发
 code-review $PR --post && code-review $PR --post
 ```
 
-实测结果：续跑时只重跑被打断的那个文件，已完成的不重复计费；`--budget 0.30` 时跑完第 1 个文件就预测到会花 ¥0.37 而降级，之后预测逐步收敛，最终 ¥0.16 落在预算内；硬停时 4 个文件只有 1 个过了 LLM，报告里仍有 5 条可采纳意见。
+实测结果：续跑时只重跑被打断的那个文件，已花的钱接着累加而不是从零开始；`--budget 0.22` 时跑完第 1 个文件就预测会花 ¥0.46 而降级，预测随后收敛 0.46 → 0.27 → 0.19，最终 ¥0.16 落在预算内；硬停时 4 个文件只有 2 个过了 LLM，报告里仍有 8 条可采纳意见——确定性检查不花钱，照跑。
 
 ---
 
@@ -78,21 +80,29 @@ code-review $PR --post && code-review $PR --post
 评审进行中：左边文件进度，右边 agent 此刻在做什么，顶部始终是花费和当前模型。
 
 ```
-⬢ yanmxa/code-review #1 demo: add cache eviction, session lookup, and...
-demo/planted-defects → main · 4 files                                     openai/gpt-5.4
-▰▱▱▱▱▱▱▱▱▱ ¥0.38/¥6.00 · → ¥0.43 · ↑9.9k ↓1.7k ⛁6.1k
+⬢ yanmxa/code-review #1 demo: add cache eviction, session lookup, and retry helper
+demo/planted-defects → main · 4 files                                            openai/gpt-5.4-mini
+▱▱▱▱▱▱▱▱▱▱ ¥0.04/¥1.00 · → ¥0.06 · ↑1.8k ↓1.2k ⛁10.8k
 
-╭─ 文件 ───────────────────── 2/4 ─╮╭─ 进行中 ─────────────────────────────────────────╮
-│✓ demo/src/cache.ts            2  ││    demo/src/retry.ts (11 lines)                  │
-│✓ demo/src/config.ts           1  ││  → ts_syntax_check demo/src/retry.ts             │
-│⠋ demo/src/retry.ts               ││    no diagnostics                                │
-│◌ demo/src/session.ts             ││────────────────────                              │
-│                                  ││循环条件是 i <= attempts，默认 3                  │
-│                                  ││会跑四次。正在确认调用方是否依赖…                 │
-│                                  ││                                                  │
-╰──────────────────────────────────╯╰──────────────────────────────────────────────────╯
+╭─ 文件 ─────────────────────────── 3/4 ─╮╭─ 进行中 ───────────────────────────────────────────────╮
+│✓ demo/src/config.ts                 2  ││                                                        │
+│✓ demo/src/retry.ts                  2  ││▸ demo/src/session.ts                                   │
+│⠹ demo/src/session.ts                   ││  → get_file demo/src/session.ts                        │
+│                                        ││    demo/src/session.ts                                 │
+│                                        ││  → get_file demo/src/db.ts                             │
+│                                        ││  → search_diff loadSession\(|newSessionToken\(|fin...  │
+│                                        ││    2 matching changed line(s):                         │
+│                                        ││    File not found at head commit: demo/src/db.ts       │
+│                                        ││                                                        │
+│                                        ││                                                        │
+│                                        ││                                                        │
+│                                        ││                                                        │
+│                                        ││                                                        │
+│                                        ││                                                        │
+│                                        ││                                                        │
+╰────────────────────────────────────────╯╰────────────────────────────────────────────────────────╯
 
-━━━━━━━━━━━━ 2/4 · 00:00  ●4 ○0                                        ctrl+c 存档并退出
+━━━━━━━━━━━━ 3/4 · 00:23  ●4 ○2                                                    ctrl+c 存档并退出
 ```
 
 <details>
@@ -101,23 +111,32 @@ demo/planted-defects → main · 4 files                                     ope
 `p` 一键回评选中的。右侧显示这条意见**凭什么**被判成这一档。
 
 ```
-⬢ 评审结果 · 11 total  ● 7  ○ 4                                   ▰▱▱▱▱▱▱▱▱▱ ¥0.38/¥6.00
+⬢ 评审结果 · 11 total  ● 8  ○ 3                                               ▰▱▱▱▱▱▱▱▱▱ ¥0.12/¥1.00
 
-╭─ 发现 ──────────────────── 7/11 ─╮╭─ 详情 ───────────────────────────────────────────╮
-│● 可直接采纳 (7)                  ││● 提交中包含疑似密钥                              │
-│▌[x] ● config.ts:4 提交中包含...  ││F-001 · 阻断 · 可直接采纳                         │
-│ [x] ● session.ts:14 SQL 语句...  ││demo/src/config.ts:4                              │
-│ [x] ● session.ts:8 用非密码...   ││                                                  │
-│ [x] ● cache.ts:15 新增了 con...  ││这一行被密钥扫描器判定为                          │
-│ [x] ● retry.ts:1 改动没有配...   ││`aws-access-key`（内容已在传给模型前脱敏）。请从  │
-│ [x] ● session.ts:4 改动没有...   ││代码中移除，改用环境变量或密钥管理服务，并**轮换  │
-│ [x] ● session.ts:4 使用了宽...   ││该凭据**——它已经进入了 git 历史。                 │
-│                                  ││                                                  │
-│○ 仅供参考 (4)                    ││证据                                              │
-│ [ ] ○ config.ts:5 提交了明文...  ││  ● 规则 secret-in-diff 命中                      │
-╰──────────────────────────────────╯╰──────────────────────────────────────────────────╯
+╭─ 发现 ────────────────────────── 8/11 ─╮╭─ 详情 ─────────────────────────────────────────────────╮
+│● 可直接采纳 (8)                        ││提交中包含疑似密钥                                      │
+│▌[x] ● config.ts:4 提交中包含疑似密钥   ││                                                        │
+│ [x] ● config.ts:5 提交中包含疑似密钥   ││文件    demo/src/config.ts:4                            │
+│ [x] ● session.ts:14 SQL 语句拼接变量   ││严重级  阻断                                            │
+│ [x] ● session.ts:8 用非密码学随机...   ││置信度  ● 可直接采纳                                    │
+│ [x] ● cache.ts:15 新增了 console 日志  ││                                                        │
+│ [x] ● retry.ts:1 改动没有配套的测...   ││说明 ───────────────────────────────────────────────    │
+│ [x] ● session.ts:4 改动没有配套的...   ││  这一行被密钥扫描器判定为                              │
+│ [x] ● session.ts:4 使用了宽松相等比较  ││  `aws-access-key`（内容已在传给模型前脱敏）。请从代码  │
+│                                        ││  中移除，改用环境变量或密钥管理服务，并**轮换该凭据**  │
+│○ 仅供参考 (3)  ◉确定 ◐多半 ○拿不准     ││  ——它已经进入了 git 历史。                             │
+│ [ ] ◉ retry.ts:3 `attempts` 被多执...  ││                                                        │
+│ [ ] ◉ session.ts:15 吞掉数据库异常...  ││改动 ───────────────────────────────────────────────    │
+│ [ ] ◐ cache.ts:11 更新已有键时会误...  ││    1  export const config = {                          │
+│                                        ││    2    region: "us-east-1",                           │
+│                                        ││    3    timeoutMs: 5000,                               │
+│                                        ││▸   4 +  awsAccessKeyId: "[REDACTED:aws-access-key:...  │
+│                                        ││    5 +  awsSecretAccessKey: "[REDACTED:generic-ass...  │
+│                                        ││─────────────────────────────────────────────  18/23    │
+│                                        ││t 查看完整 trace   traces/demo_src_config.ts.jsonl      │
+╰────────────────────────────────────────╯╰────────────────────────────────────────────────────────╯
 
-                         ↑↓ 移动 · space 选中 · a 全选可采纳 · t trace · p 回评 · q 退出
+                        ↑↓ 移动 · space 选中 · a 全选可采纳 · J/K 翻详情 · t trace · p 回评 · q 退出
 ```
 
 </details>
@@ -126,20 +145,22 @@ demo/planted-defects → main · 4 files                                     ope
 <summary><b>按 <code>t</code> 查看某条意见的完整 trace</b></summary>
 
 ```
-╭─ F-002 · traces/demo_src_session.ts.jsonl ───────────────────────────────────────────╮
-│▌14:38:56 ✦ rule no-test-change demo/src/session.ts:4                                 │
-│ 14:38:56 ✦ rule loose-equality demo/src/session.ts:4                                 │
-│ 14:38:56 ✦ rule insecure-random demo/src/session.ts:8                                │
-│ 14:38:56 ✦ rule sql-string-concat demo/src/session.ts:14                             │
-│ 14:38:56 ▸ unit demo/src/session.ts openai/gpt-5.4                                   │
-│ 14:38:56 ↑ llm 1 msg · 4 tools openai/gpt-5.4                                        │
-│ 14:38:59 ↓ llm toolUse ↑1.6k ↓89 $0.0054                                             │
-│ 14:38:59 → get_file {"path":"demo/src/session.ts"}                                   │
-│ 14:39:00   · demo/src/session.ts                                                     │
-│ 14:39:00 ↑ llm 3 msg · 4 tools openai/gpt-5.4                                        │
-│ 14:39:01 ↓ llm toolUse ↑391 ↓33 $0.0019                                              │
-│                                                       ↑↓ 移动 · enter 展开 · esc 关闭│
-╰──────────────────────────────────────────────────────────────────────────────────────╯
+╭─ F-010 · traces/demo_src_session.ts.jsonl ─────────────────────────────────────────╮
+│▌16:54:37 ✦ rule no-test-change demo/src/session.ts:4                               │
+│ 16:54:37 ✦ rule loose-equality demo/src/session.ts:4                               │
+│ 16:54:37 ✦ rule insecure-random demo/src/session.ts:8                              │
+│ 16:54:37 ✦ rule sql-string-concat demo/src/session.ts:14                           │
+│ 16:54:37 ▸ unit demo/src/session.ts openai/gpt-5.4-mini                            │
+│ 16:54:37 ↑ llm 1 msg · 4 tools openai/gpt-5.4-mini                                 │
+│ 16:54:40 ↓ llm toolUse ↑1.8k ↓64 $0.0016                                           │
+│ 16:54:40 → get_file {"path":"demo/src/session.ts","startLine":1}                   │
+│ 16:54:41   · demo/src/session.ts                                                   │
+│ 16:54:41 ↑ llm 3 msg · 4 tools openai/gpt-5.4-mini                                 │
+│ 16:54:43 ↓ llm toolUse ↑498 ↓112 $0.0010                                           │
+│ 16:54:43 → get_file {"path":"demo/src/db.ts","startLine":1}                        │
+│ 16:54:43   · File not found at head commit: demo/src/db.ts                         │
+│                                                  ↑↓ 移动 · enter 展开 · esc 关闭│
+╰────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 调了哪些工具、发出去的 prompt 原文、模型原始回复、每步花了多少钱。回车展开任意一行。
@@ -158,6 +179,10 @@ code-review runs                    # 列出所有断点
 code-review triage <run-id>         # 重新打开某次运行的结果浏览器
 code-review trace <run-id> <unit>   # 打印某个单元的完整 trace
 code-review config                  # 查看这次运行会用的配置
+code-review init                    # 回答四个问题，生成配置
+code-review auth                    # 看当前找到了哪些凭据
+code-review login openai-codex      # 用 ChatGPT 订阅代替 API key
+code-review dismissed <pr-url>      # 这个仓库已经否掉过什么
 ```
 
 常用参数：
@@ -245,7 +270,7 @@ src/
 ## 开发
 
 ```bash
-npm test              # 280 个测试，全部离线，不需要任何 API key
+npm test              # 288 个测试，全部离线，不需要任何 API key
 npm run typecheck
 npm run dev -- <url>  # tsx 直跑，不用先 build
 ```

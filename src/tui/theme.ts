@@ -1,5 +1,5 @@
 import chalk, { type ChalkInstance } from "chalk";
-import type { Confidence, Severity, UnitStatus } from "../types.js";
+import type { Certainty, Confidence, Severity, UnitStatus } from "../types.js";
 
 /**
  * One restrained palette, used by every surface.
@@ -34,6 +34,8 @@ export const theme: Theme = {
 export const GLYPH = {
   adoptable: "●",
   reference: "○",
+  sure: "◉",
+  likely: "◐",
   done: "✓",
   active: "▸",
   pending: "◌",
@@ -60,8 +62,21 @@ export function statusGlyph(status: UnitStatus): string {
   }
 }
 
-export function confidenceGlyph(confidence: Confidence): string {
-  return confidence === "adoptable" ? theme.ok(GLYPH.adoptable) : theme.warn(GLYPH.reference);
+/**
+ * One mark carrying both what backs a finding and how sure its author was.
+ *
+ * The list is the narrowest column on screen and the title is what the reader
+ * scans, so spelling the certainty out there cost the words people actually
+ * read — at eighty columns the titles clipped to an ellipsis. Fill level says
+ * it in no width at all, and reads in the right direction: a solid mark is
+ * backed by evidence, and a hollow one is a guess the model would not stand
+ * behind. Shape rather than colour, so it survives a monochrome terminal.
+ */
+export function confidenceGlyph(confidence: Confidence, certainty?: Certainty): string {
+  if (confidence === "adoptable") return theme.ok(GLYPH.adoptable);
+  if (certainty === "certain") return theme.warn(GLYPH.sure);
+  if (certainty === "likely") return theme.warn(GLYPH.likely);
+  return theme.warn(GLYPH.reference);
 }
 
 export function severityStyle(severity: Severity): ChalkInstance {
