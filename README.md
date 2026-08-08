@@ -9,7 +9,7 @@ the evidence behind it. Built on the [pi](https://github.com/earendil-works/pi) 
 
 - **Deterministic checks run first** — committed secrets, SQL concatenation, unsafe randomness, missing tests. These need no model, and a hit is adoptable-tier evidence
 - **One agent loop per file** — with read-only tools (read a file, search this PR's changes, run the TypeScript compiler), capped at six turns
-- **CI results are injected into the review context** — failing checks and their line-level diagnostics go into the file's user message alongside the diff. Whether the suite passes is already measured; the model is not asked to guess at it
+- **CI results go to the model too** — failing tests and their line-level errors enter the context alongside the diff, instead of being guessed at
 - **It only concludes what it can back** — machine-verifiable evidence is "adoptable", model reasoning is "for reference", and the two are never blurred
 - **A rejected comment is never raised again** — deleting or resolving one is a permanent no
 
@@ -17,7 +17,7 @@ The full mechanism: [how a review runs](docs/how-it-works.zh.md) (Chinese).
 
 **Whether the tool itself is trustworthy**
 
-- **Survives being killed** — the run id is a hash of repo + PR number + head SHA, so re-running the same command lands in the same checkpoint directory by construction; there is no id to remember ([mechanism](docs/how-it-works.zh.md#断点续跑的原理))
+- **Survives being killed** — run the same command again and it picks up where it stopped ([why](docs/how-it-works.zh.md#断点续跑的原理))
 - **Stays inside a budget** — downgrades the model as spend rises, stops at the limit, still finishes the zero-cost checks
 - **Every finding is traceable** — full prompt, raw model response, and tool calls in one file
 - **Secrets never leave the machine** — redaction is type-enforced; the repo is never cloned and no repo code runs
