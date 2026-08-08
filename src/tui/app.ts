@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RunStore } from "../checkpoint/store.js";
 import type { Config, Language } from "../config.js";
+import { dedupe } from "../engine/grade.js";
 import { renderReport, type ReportInput } from "../report/markdown.js";
 import { postFindings } from "../report/post.js";
 import { Redactor } from "../security/redactor.js";
@@ -93,7 +94,10 @@ export async function browseRun(runDir: string, config: Config): Promise<void> {
     headSha: state.headSha,
     diffHash: state.diffHash,
   });
-  const findings = store.readFindings();
+  // findings.jsonl is append-only — that is what makes it crash-safe — so a run
+  // that resumed mid-unit has that unit's findings recorded twice. Dedupe on
+  // read, exactly as the pipeline does before it reports.
+  const findings = dedupe(store.readFindings());
 
   if (findings.length === 0) {
     process.stdout.write(theme.dim("This run recorded no findings.\n"));

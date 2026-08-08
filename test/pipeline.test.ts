@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig } from "../src/config.js";
+import { dedupe } from "../src/engine/grade.js";
 import { runReview } from "../src/engine/pipeline.js";
 import { Redactor } from "../src/security/redactor.js";
 import { Tracer } from "../src/trace/tracer.js";
@@ -300,5 +301,31 @@ describe("pipeline — unit planning", () => {
     );
     expect(skipped).toHaveLength(1);
     expect(skipped[0]?.type === "unit_end" && skipped[0].unitId).toBe("package-lock.json");
+  });
+});
+
+describe("pipeline — findings on disk", () => {
+  it("dedupes a unit's findings after a resumed run recorded them twice", async () => {
+    const adapter = new FakePlatform(SAMPLE_DIFF);
+    const redactor = new Redactor();
+
+    const first = scriptedModels([submitMessage([]), submitMessage([])]);
+    const { store } = await runReview(TEST_TARGET, {
+      adapter,
+      models: first.models,
+      redactor,
+      config: config(),
+      emit: () => {},
+    });
+
+    // Simulate what a mid-unit crash leaves behind: the unit re-runs and
+    // appends its findings a second time to the append-only log.
+    const onDisk = store.readFindings();
+    expect(onDisk.length).toBeGreaterThan(0);
+    store.appendFindings(onDisk);
+    expect(store.readFindings().length).toBe(onDisk.length * 2);
+
+    // Anything presenting findings to a user must collapse them back.
+    expect(dedupe(store.readFindings())).toHaveLength(onDisk.length);
   });
 });

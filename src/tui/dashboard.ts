@@ -21,7 +21,7 @@ import {
   statusGlyph,
   theme,
 } from "./theme.js";
-import { clip, columns, keyHints, pad, panel, progressBar, spread, windowAround } from "./widgets.js";
+import { clip, columns, keyHints, pad, panel, progressBar, spread, windowAround, wrap } from "./widgets.js";
 
 interface UnitRow {
   id: string;
@@ -249,11 +249,9 @@ export class Dashboard implements Component {
     if (this.streamTail && streamRows > 0) {
       out.push(theme.dim("─".repeat(Math.min(width, 20))));
       const text = this.streamTail.replace(/\s+/g, " ").trim();
-      const lines: string[] = [];
-      for (let i = Math.max(0, text.length - streamRows * width); i < text.length; i += width) {
-        lines.push(text.slice(i, i + width));
-      }
-      out.push(...lines.slice(-streamRows).map((line) => theme.dim(line)));
+      // Wrapped on word boundaries: mid-word breaks make streaming output read
+      // as garbled rather than as a thought in progress.
+      out.push(...wrap(text, width).slice(-streamRows).map((line) => theme.dim(line)));
     }
 
     return out;
