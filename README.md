@@ -26,23 +26,28 @@ now on the right, and one line at the top that always answers *what has this
 cost me and which model am I on*.
 
 ```
-⬢ yanmxa/code-review #1 Add cache eviction, session lookup, and retry helper
-feature/add-eviction-and-auth → main · 4 files                                        openai/gpt-5.4
-▰▱▱▱▱▱▱▱▱▱ ¥0.41/¥6.00 · ↑8.5k ↓2.3k ⛁6.1k
+⬢ yanmxa/code-review #1 demo: add cache eviction, session lookup, and retry helper
+demo/planted-defects → main · 4 files                                                 openai/gpt-5.4
+▰▱▱▱▱▱▱▱▱▱ ¥0.31/¥6.00 · ↑9.1k ↓1.3k ⛁6.1k                                                          
 
 ╭─ Files ────────────────────────── 2/4 ─╮╭─ Activity ─────────────────────────────────────────────╮
-│✓ src/cache.ts                       3  ││▸ src/retry.ts                                          │
-│✓ src/config.ts                      1  ││  → get_file src/retry.ts                               │
-│⠋ src/retry.ts                          ││    src/retry.ts (11 lines)                             │
-│◌ src/session.ts                        ││  → ts_syntax_check src/retry.ts                        │
-│                                        ││    1 diagnostic: TS1005 ';' expected                   │
+│✓ demo/src/cache.ts                  2  ││▸ demo/src/retry.ts                                     │
+│✓ demo/src/config.ts                 2  ││  → get_file demo/src/retry.ts                          │
+│⠋ demo/src/retry.ts                     ││    demo/src/retry.ts (11 lines)                        │
+│◌ demo/src/session.ts                   ││  → search_diff withRetry\(                             │
+│                                        ││    No changed line matches /withRetry\(/.              │
 │                                        ││────────────────────                                    │
 │                                        ││The loop condition uses i <= attempts, so with the      │
-│                                        ││default of 3 it runs four times. Checking whether       │
-│                                        ││callers depend on that…                                 │
+│                                        ││default of 3 it runs four times. Checking whether any   │
+│                                        ││caller depends on that…                                 │
+│                                        ││                                                        │
+│                                        ││                                                        │
+│                                        ││                                                        │
+│                                        ││                                                        │
+│                                        ││                                                        │
 ╰────────────────────────────────────────╯╰────────────────────────────────────────────────────────╯
 
-━━━━━━━━━━━━ 2/4 · 00:41  ●2 ○3                                             ctrl+c checkpoint & quit
+━━━━━━━━━━━━ 2/4 · 00:00  ●4 ○0                                             ctrl+c checkpoint & quit
 ```
 
 **The findings browser.** Two groups by confidence, adoptable ones pre-selected,
@@ -50,23 +55,27 @@ feature/add-eviction-and-auth → main · 4 files                               
 earned the label it has.
 
 ```
-⬢ Review findings · 9 total  ● 5  ○ 4                                         ▰▱▱▱▱▱▱▱▱▱ ¥0.41/¥6.00
+⬢ Review findings · 8 total  ● 5  ○ 3                                         ▰▱▱▱▱▱▱▱▱▱ ¥0.31/¥6.00
 
-╭─ Findings ─────────────────────── 5/9 ─╮╭─ Detail ───────────────────────────────────────────────╮
+╭─ Findings ─────────────────────── 5/8 ─╮╭─ Detail ───────────────────────────────────────────────╮
 │● ADOPTABLE (5)                         ││● Credential committed in this change                   │
 │▌[x] ● config.ts:4 Credential commi...  ││F-001 · blocker · adoptable                             │
-│ [x] ● session.ts:14 SQL built by s...  ││src/config.ts:4                                         │
+│ [x] ● session.ts:14 SQL built by s...  ││demo/src/config.ts:4                                    │
 │ [x] ● session.ts:8 Non-cryptograph...  ││                                                        │
 │ [x] ● cache.ts:15 New `console` lo...  ││The secret scanner classified this line as              │
 │ [x] ● session.ts:4 Loose equality ...  ││`aws-access-key` (the value was masked before any       │
-│                                        ││model saw it). Remove it, move it to a secret           │
-│○ REFERENCE (4)                         ││manager, and rotate the credential.                     │
-│ [ ] ○ cache.ts:11 Updating an exis...  ││                                                        │
-│ [ ] ○ cache.ts:12 Eviction is FIFO...  ││Evidence                                                │
-│ [ ] ○ retry.ts:3 Loop performs one...  ││  ● rule secret-in-diff matched src/config.ts:4 —       │
-│ [ ] ○ session.ts:15 Database error...  ││    awsAccessKeyId: "[REDACTED:aws-access-key:5d3c]",   │
+│                                        ││model saw it). Remove it from the code, move it to an   │
+│○ REFERENCE (3)                         ││environment variable or secret manager, and **rotate    │
+│ [ ] ○ cache.ts:11 Eviction runs ev...  ││the credential** — it is already in git history.        │
+│ [ ] ○ retry.ts:3 Retry loop perfor...  ││                                                        │
+│ [ ] ○ session.ts:15 Database failu...  ││Evidence                                                │
+│                                        ││  ● rule secret-in-diff matched demo/src/config.ts:4 —  │
+│                                        ││    awsAccessKeyId: "[REDACTED:aws-access-key:1a5d]",   │
 │                                        ││                                                        │
-│                                        ││→ traces/src_config.ts.jsonl   t open trace             │
+│                                        ││→ traces/demo_src_config.ts.jsonl   t open trace        │
+│                                        ││                                                        │
+│                                        ││                                                        │
+│                                        ││                                                        │
 ╰────────────────────────────────────────╯╰────────────────────────────────────────────────────────╯
 
                        ↑↓ move · space toggle · a all adoptable · t trace · p post · l lang · q quit
@@ -77,17 +86,23 @@ tools ran, the exact prompt that was sent, the raw model response, and what each
 step cost. Enter expands any row.
 
 ```
-╭─ F-002 · traces/src_session.ts.jsonl ────────────────────────────────────────────────────────────╮
-│ 02:04:17 ✦ rule loose-equality src/session.ts:4                                                  │
-│ 02:04:17 ✦ rule insecure-random src/session.ts:8                                                 │
-│▌02:04:17 ✦ rule sql-string-concat src/session.ts:14                                              │
-│ 02:04:17 ▸ unit src/session.ts openai/gpt-5.4                                                    │
-│ 02:04:17 ↑ llm 1 msg · 4 tools openai/gpt-5.4                                                    │
-│ 02:04:20 ↓ llm toolUse ↑90 ↓137 $0.0027                                                          │
-│ 02:04:20 → get_file {"path":"src/session.ts","startLine":1}                                      │
-│ 02:04:20 → search_diff {"pattern":"\\.query\\(","maxResults":20}                                 │
-│ 02:04:20   · 1 matching changed line(s):                                                         │
-│ 02:04:21 ↑ llm 5 msg · 4 tools openai/gpt-5.4                                                    │
+╭─ F-002 · traces/demo_src_session.ts.jsonl ───────────────────────────────────────────────────────╮
+│ 02:28:51 ✦ rule loose-equality demo/src/session.ts:4                                             │
+│ 02:28:51 ✦ rule insecure-random demo/src/session.ts:8                                            │
+│▌02:28:51 ✦ rule sql-string-concat demo/src/session.ts:14                                         │
+│ 02:28:51 ▸ unit demo/src/session.ts openai/gpt-5.4                                               │
+│ 02:28:51 ↑ llm 1 msg · 4 tools openai/gpt-5.4                                                    │
+│ 02:28:54 ↓ llm toolUse ↑1.8k ↓78 $0.0057                                                         │
+│ 02:28:54 → get_file {"path":"demo/src/session.ts","startLine":1}                                 │
+│ 02:28:55   · demo/src/session.ts                                                                 │
+│ 02:28:55 ↑ llm 3 msg · 4 tools openai/gpt-5.4                                                    │
+│ 02:28:57 ↓ llm toolUse ↑552 ↓44 $0.0024                                                          │
+│ 02:28:57 → get_file {"path":"demo/src/db.ts","startLine":1}                                      │
+│ 02:28:57   · File not found at head commit: demo/src/db.ts                                       │
+│ 02:28:57 ↑ llm 5 msg · 4 tools openai/gpt-5.4                                                    │
+│ 02:28:59 ↓ llm toolUse ↑618 ↓44 $0.0026                                                          │
+│ 02:28:59 → search_diff {"pattern":"createConnection\\(|query\\(","...                            │
+│ 02:28:59   · 2 matching changed line(s):                                                         │
 │                                                                ↑↓ move · enter expand · esc close│
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
@@ -214,21 +229,24 @@ Against a pull request with deliberately planted defects
 ```
 $ code-review https://github.com/yanmxa/code-review/pull/1 --budget 6 --no-tui --lang en
 
-✓ src/cache.ts — 3 finding(s)
-    ● minor  src/cache.ts:15    New `console` logging                        [adoptable]
-    ○ major  src/cache.ts:11    Updating an existing key can evict another    [reference]
-✓ src/config.ts — 1 finding(s)
-    ● blocker src/config.ts:4   Credential committed in this change           [adoptable]
-✓ src/session.ts — 4 finding(s)
-    ● blocker src/session.ts:14 SQL built by string concatenation             [adoptable]
-    ● major  src/session.ts:8   Non-cryptographic randomness for an identifier [adoptable]
-    ○ major  src/session.ts:15  Database errors silently become "not found"   [reference]
+✓ demo/src/cache.ts — 2 finding(s)
+    ● minor   demo/src/cache.ts:15   New `console` logging                       [adoptable]
+    ○ major   demo/src/cache.ts:11   Eviction runs even when replacing a key     [reference]
+✓ demo/src/config.ts — 1 finding(s)
+    ● blocker demo/src/config.ts:4   Credential committed in this change         [adoptable]
+✓ demo/src/retry.ts — 1 finding(s)
+    ○ major   demo/src/retry.ts:3    Retry loop performs one extra attempt       [reference]
+✓ demo/src/session.ts — 4 finding(s)
+    ● blocker demo/src/session.ts:14 SQL built by string concatenation           [adoptable]
+    ● major   demo/src/session.ts:8  Non-cryptographic randomness for an id      [adoptable]
+    ● minor   demo/src/session.ts:4  Loose equality comparison                   [adoptable]
+    ○ major   demo/src/session.ts:15 Database failures silently become "no session" [reference]
 
-Done. 9 finding(s) — 5 adoptable, 4 reference · ¥0.41
+Done. 8 finding(s) — 5 adoptable, 3 reference · ¥0.31
 ```
 
 Unedited artifacts are in [`examples/`](examples/): the
-[report](examples/sample-report.md), one
+[report](examples/sample-report.en.md), one
 [trace](examples/sample-trace.jsonl), and the
 [checkpoint file](examples/sample-state.json).
 
@@ -236,7 +254,7 @@ Unedited artifacts are in [`examples/`](examples/): the
 
 - **Resume** — `kill -9` mid-run, then re-run the same command. Only the
   interrupted file is redone; the three completed ones are neither re-reviewed
-  nor re-billed (¥0.238 → ¥0.346).
+  nor re-billed (¥0.24 → ¥0.35).
 - **Downgrade** — `--budget 0.30` switches to `gpt-5.4-mini` at 55% spent and
   finishes inside budget at ¥0.22.
 - **Hard stop** — `--budget 0.12` blows the budget on the first file. The

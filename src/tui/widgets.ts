@@ -133,10 +133,18 @@ export function progressBar(done: number, total: number, width: number): string 
   return theme.ok("━".repeat(filled)) + theme.dim("━".repeat(Math.max(0, width - filled)));
 }
 
-/** Word-wrap plain text (no ANSI) to a width. */
+/**
+ * Word-wrap plain text (no ANSI) to a width.
+ *
+ * Width is measured in terminal columns, not characters — a CJK glyph occupies
+ * two columns. The hard-split path below must therefore advance by the
+ * characters actually consumed, not by the column count, or Chinese text loses
+ * and duplicates glyphs at every wrap point.
+ */
 export function wrap(text: string, width: number): string[] {
   if (width <= 0) return [];
   const out: string[] = [];
+
   for (const paragraph of text.split("\n")) {
     if (paragraph.trim() === "") {
       out.push("");
@@ -144,13 +152,15 @@ export function wrap(text: string, width: number): string[] {
     }
     let line = "";
     for (const word of paragraph.split(/\s+/)) {
-      // A word longer than the line gets hard-split rather than overflowing.
+      // A word wider than the line gets hard-split rather than overflowing.
+      // CJK prose is one such "word": it carries no spaces to break on.
       if (visibleWidth(word) > width) {
         if (line) out.push(line);
         let rest = word;
         while (visibleWidth(rest) > width) {
-          out.push(clip(rest, width));
-          rest = rest.slice(width);
+          const piece = takeColumns(rest, width);
+          out.push(piece);
+          rest = rest.slice(piece.length);
         }
         line = rest;
         continue;
@@ -166,6 +176,21 @@ export function wrap(text: string, width: number): string[] {
     if (line) out.push(line);
   }
   return out;
+}
+
+/** Longest prefix of `text` that fits in `columns` terminal columns. */
+export function takeColumns(text: string, columns: number): string {
+  let taken = "";
+  let used = 0;
+  // Iterate by code point so surrogate pairs and CJK glyphs stay intact.
+  for (const char of text) {
+    const w = visibleWidth(char);
+    if (used + w > columns) break;
+    taken += char;
+    used += w;
+  }
+  // A single glyph wider than the whole line would otherwise loop forever.
+  return taken.length > 0 ? taken : [...text][0] ?? "";
 }
 
 /** A key-hint footer: `↑↓ move · enter open · q quit`. */

@@ -1,25 +1,25 @@
 {
   "version": 1,
-  "runId": "a537f800fa76",
-  "prUrl": "https://github.com/yanmxa/pi-review-demo/pull/1",
+  "runId": "2a008cf0e899",
+  "prUrl": "https://github.com/yanmxa/code-review/pull/1",
   "platform": "github",
-  "headSha": "fb24853f81a02ac90f6b9f5e799ba15692fcc181",
-  "diffHash": "a6588e3626d77ebb7665e5c5f7cd81db493b199a8cd7e8941154a331297ea2f0",
-  "startedAt": "2026-08-08T02:03:54.430Z",
-  "updatedAt": "2026-08-08T02:10:14.571Z",
+  "headSha": "b5afa3ffb7d18068231b1c8cf7f64a81adcc700d",
+  "diffHash": "0b26c70c25e1e09142fdccb383f9614c7f313b93b90904110dbbd883e78d7b31",
+  "startedAt": "2026-08-08T02:29:32.919Z",
+  "updatedAt": "2026-08-08T02:30:00.591Z",
   "spend": {
-    "usd": 0.05688850000000001,
-    "cny": 0.41244162500000003,
-    "inputTokens": 8467,
-    "outputTokens": 2279,
-    "cacheReadTokens": 6144,
-    "calls": 8,
+    "usd": 0.04896450000000001,
+    "cny": 0.35499262500000006,
+    "inputTokens": 8853,
+    "outputTokens": 1712,
+    "cacheReadTokens": 4608,
+    "calls": 7,
     "byModel": {
       "openai/gpt-5.4": {
-        "usd": 0.05688850000000001,
-        "calls": 8,
-        "inputTokens": 8467,
-        "outputTokens": 2279
+        "usd": 0.04896450000000001,
+        "calls": 7,
+        "inputTokens": 8853,
+        "outputTokens": 1712
       }
     }
   },
@@ -28,35 +28,35 @@
   "hardStopped": false,
   "units": [
     {
-      "id": "src/cache.ts",
-      "path": "src/cache.ts",
+      "id": "demo/src/cache.ts",
+      "path": "demo/src/cache.ts",
       "status": "done",
-      "findings": 3,
-      "spendUsd": 0.021917500000000003,
+      "findings": 2,
+      "spendUsd": 0.011734000000000001,
       "attempts": 1
     },
     {
-      "id": "src/config.ts",
-      "path": "src/config.ts",
+      "id": "demo/src/config.ts",
+      "path": "demo/src/config.ts",
+      "status": "done",
+      "findings": 2,
+      "spendUsd": 0.0100575,
+      "attempts": 1
+    },
+    {
+      "id": "demo/src/retry.ts",
+      "path": "demo/src/retry.ts",
       "status": "done",
       "findings": 1,
-      "spendUsd": 0.007287500000000001,
+      "spendUsd": 0.0088225,
       "attempts": 1
     },
     {
-      "id": "src/retry.ts",
-      "path": "src/retry.ts",
-      "status": "done",
-      "findings": 1,
-      "spendUsd": 0.00787,
-      "attempts": 1
-    },
-    {
-      "id": "src/session.ts",
-      "path": "src/session.ts",
+      "id": "demo/src/session.ts",
+      "path": "demo/src/session.ts",
       "status": "done",
       "findings": 4,
-      "spendUsd": 0.019813499999999998,
+      "spendUsd": 0.0183505,
       "attempts": 1
     }
   ],

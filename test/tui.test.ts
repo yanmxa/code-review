@@ -99,6 +99,31 @@ describe("widgets", () => {
     assertWithinWidth(wrap("supercalifragilisticexpialidocious", 10), 10);
   });
 
+  it("wraps CJK prose without losing or duplicating glyphs", () => {
+    // Regression: the hard-split path advanced by column count while slicing by
+    // character index. A CJK glyph is two columns wide, so every wrap point
+    // dropped half the characters — visible as `**bold**` markers being torn
+    // apart in the findings detail pane.
+    const text = "这一行被密钥扫描器判定为疑似凭据，内容已在传给模型前脱敏。请从代码中移除，改用密钥管理服务，并轮换该凭据。";
+    const lines = wrap(text, 24);
+    assertWithinWidth(lines, 24);
+    expect(lines.join("")).toBe(text);
+  });
+
+  it("wraps mixed CJK and ASCII without losing glyphs", () => {
+    const text = "规则 secret-in-diff 命中 demo/src/config.ts:4 —— 请轮换该凭据并从代码中移除它";
+    const lines = wrap(text, 20);
+    assertWithinWidth(lines, 20);
+    // Where a break lands (inside a CJK run or at a space) is a layout choice;
+    // what must hold is that every glyph survives exactly once.
+    const strip = (s: string) => s.replace(/\s+/g, "");
+    expect(strip(lines.join(""))).toBe(strip(text));
+  });
+
+  it("never loops forever on a glyph wider than the line", () => {
+    expect(wrap("宽", 1)).toEqual(["宽"]);
+  });
+
   it("keeps the selection inside the window", () => {
     expect(windowAround(100, 0, 10)).toEqual({ start: 0, end: 10 });
     expect(windowAround(100, 99, 10)).toEqual({ start: 90, end: 100 });
