@@ -52,15 +52,38 @@ code-review undismiss <pr-url> <fp> # 撤销某一条否决
 内置默认  →  ~/.config/code-review/config.json  →  ./review.config.json  →  环境变量  →  命令行
 ```
 
-`code-review init` 问几个问题，**只写下和默认值不同的部分**——一份全是默认值的配置文件，读的人分不清哪些是刻意选的、哪些只是没删。
+`code-review init` 问四个问题，**只写下和默认值不同的部分**——一份全是默认值的配置文件，读的人分不清哪些是刻意选的、哪些只是没删。
 
 ```
 $ code-review init
 
-  Budget per review [¥10.00] › ¥20
-  Model [openai/gpt-5.4] › ↵
-  Language for findings (zh/en) [zh] › ↵
-  Topics the reviewer should not raise (comma-separated) [skip] › 命名风格
+  评审意见和报告用什么语言？ / Language for findings and the report
+
+   ›  1. 中文
+      2. English
+
+  [1] › ↵
+
+  每次评审的预算上限 [¥10.00] › ¥20
+
+  从哪个模型开始评审？（价格为每百万 token 输入/输出）
+
+      1. openai/gpt-5.5               $5 / $30
+      2. moonshotai/kimi-k3           $3 / $15
+   ›  3. openai/gpt-5.4               $2.5 / $15
+      4. openai/o3                    $2 / $8
+      …
+
+  [3] › ↵
+
+  预计会超支时，依次降级到
+
+   ↓  1. openai/gpt-5.4-mini
+   ↓  2. openai/gpt-5.4-nano
+
+  回车接受，或输入以逗号分隔的编号 [skip] › ↵
+
+  有什么是它不用提的？比如你们已经定好的命名风格、注释格式 [skip] › 命名风格
 
 ✓ review.config.json
 
@@ -69,6 +92,10 @@ $ code-review init
     "review": { "ignore": ["命名风格"] }
   }
 ```
+
+模型列表按价格跨区间抽样（不是只列最贵的几个——降级链需要便宜档位可见），只列有凭据的 provider 里推理型、单价合理的型号。降级链默认建议**同族的便宜型号**：同族意味着每一档的 prompt 行为一致，只有价格不同；跨族降级会让评审风格在半途改变。
+
+先问语言，之后的问题用你选的语言提问。`-y` 跳过全部提问（脚本用），非 TTY 时写空配置并说明。
 
 `code-review config` 打印合并后的完整结果，`--edit` 用 `$EDITOR` 打开并在退出时校验能否解析。
 

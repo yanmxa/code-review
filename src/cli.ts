@@ -9,9 +9,11 @@ import { ensureProxySupport } from "./net/proxy.js";
 ensureProxySupport();
 
 import { findRunDir, listRuns } from "./checkpoint/store.js";
+import type { Models } from "@earendil-works/pi-ai";
 import {
   type Config,
   type ConfigOverrides,
+  type Language,
   configFromEnv,
   DEFAULT_CONFIG,
   formatModelRef,
@@ -25,6 +27,14 @@ import { authStatus, terminalInteraction } from "./auth/login.js";
 import { FileCredentialStore } from "./auth/credential-store.js";
 import { parseBudgetLimit, serializeBudgetLimit } from "./budget/limit.js";
 import { BUILTIN_RULE_IDS } from "./engine/rules-engine.js";
+import {
+  allModelCandidates,
+  type Asker,
+  createAsker,
+  INIT_TEXT,
+  modelChoices,
+  suggestLadder,
+} from "./init/prompts.js";
 import { DismissalStore } from "./memory/dismissals.js";
 import { parseTarget } from "./platform/adapter.js";
 import { createModelRegistry, executeRun, KNOWN_PROVIDERS, providerForLogin } from "./run.js";
@@ -351,8 +361,7 @@ function commandConfig(config: Config): number {
  *
  * The previous version dumped every default into the file. A config that
  * restates the defaults is worse than no config: a reader cannot tell what the
- * project chose from what nobody got round to deleting. Four questions produce
- * three lines, and every line in the file means something.
+ * project chose from what nobody got round to deleting.
  */
 async function commandInit(config: Config, assumeYes: boolean): Promise<number> {
   const path = projectConfigPath();
@@ -362,8 +371,8 @@ async function commandInit(config: Config, assumeYes: boolean): Promise<number> 
   }
 
   const chosen: ConfigOverrides = {};
-
   const interactive = !assumeYes && process.stdin.isTTY === true;
+
   if (!interactive && !assumeYes) {
     process.stdout.write(
       theme.dim("Not a terminal — writing an empty config. Use -y to silence this, or run it interactively.\n"),
@@ -371,26 +380,36 @@ async function commandInit(config: Config, assumeYes: boolean): Promise<number> 
   }
 
   if (interactive) {
-    process.stdout.write(`${theme.dim("Enter to accept the default in brackets.\n\n")}`);
+    const asker = createAsker();
+    try {
+      // Language first, so every question after it is asked in the language the
+      // answers will be written in.
+      const langIndex = await asker.choice(
+        `${INIT_TEXT.zh.language} / ${INIT_TEXT.en.language}`,
+        [...INIT_TEXT.en.languageOptions],
+        DEFAULT_CONFIG.lang === "zh" ? 0 : 1,
+      );
+      const lang: Language = langIndex === 0 ? "zh" : "en";
+      if (lang !== DEFAULT_CONFIG.lang) chosen.lang = lang;
+      const t = INIT_TEXT[lang];
+      process.stdout.write(`\n${theme.dim(`  ${t.intro}`)}\n\n`);
 
-    const budget = await askLine("Budget per review", serializeBudgetLimit(DEFAULT_CONFIG.budget.limit));
-    if (budget !== serializeBudgetLimit(DEFAULT_CONFIG.budget.limit)) {
-      // Written back as the string a person would type, not the parsed shape.
-      chosen.budget = { limit: serializeBudgetLimit(parseBudgetLimit(budget)) };
+      const defaultLimit = serializeBudgetLimit(DEFAULT_CONFIG.budget.limit);
+      const budget = await asker.line(t.budget, defaultLimit);
+      if (budget !== defaultLimit) {
+        chosen.budget = { limit: serializeBudgetLimit(parseBudgetLimit(budget)) };
+      }
+
+      const ladder = await askModels(asker, t);
+      if (ladder) chosen.budget = { ...(chosen.budget ?? {}), models: ladder };
+
+      process.stdout.write("\n");
+      const ignore = await asker.line(t.ignore, "");
+      const topics = ignore.split(/[,，]/).map((topic) => topic.trim()).filter(Boolean);
+      if (topics.length > 0) chosen.review = { ignore: topics };
+    } finally {
+      asker.close();
     }
-
-    const model = await askLine("Model", formatModelRef(DEFAULT_CONFIG.budget.models[0]!));
-    if (model !== formatModelRef(DEFAULT_CONFIG.budget.models[0]!)) {
-      // Naming one model means wanting that model, so the ladder collapses to it.
-      chosen.budget = { ...(chosen.budget ?? {}), models: [model] };
-    }
-
-    const lang = await askLine("Language for findings (zh/en)", DEFAULT_CONFIG.lang);
-    if (lang !== DEFAULT_CONFIG.lang && (lang === "zh" || lang === "en")) chosen.lang = lang;
-
-    const ignore = await askLine("Topics the reviewer should not raise (comma-separated)", "");
-    const topics = ignore.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
-    if (topics.length > 0) chosen.review = { ignore: topics };
   }
 
   // An empty object when nothing was chosen. Writing the defaults back would
@@ -398,6 +417,7 @@ async function commandInit(config: Config, assumeYes: boolean): Promise<number> 
   // reader cannot tell a decision from a leftover.
   writeFileSync(path, `${JSON.stringify(chosen, null, 2)}\n`, "utf8");
 
+  const t = INIT_TEXT[chosen.lang ?? DEFAULT_CONFIG.lang];
   const body = JSON.stringify(chosen, null, 2)
     .split("\n")
     .map((line) => `  ${theme.dim(line)}`)
@@ -405,26 +425,68 @@ async function commandInit(config: Config, assumeYes: boolean): Promise<number> 
 
   process.stdout.write(
     `\n${theme.ok("✓")} ${theme.accent(path)}\n\n${body}\n\n` +
-      theme.dim(
-        Object.keys(chosen).length > 0
-          ? "  Only what differs from the defaults is written.\n"
-          : "  Nothing differs from the defaults yet — edit the file to change something.\n",
-      ) +
-      theme.dim("  Every field: docs/configuration.zh.md · check the result: code-review config\n"),
+      theme.dim(`  ${Object.keys(chosen).length > 0 ? t.wrote : t.nothing}\n`) +
+      theme.dim(`  ${t.seeAll}\n`),
   );
   return 0;
 }
 
-async function askLine(question: string, fallback: string): Promise<string> {
-  const { createInterface } = await import("node:readline/promises");
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+/**
+ * Pick the starting model from a list, then confirm what it falls back to.
+ *
+ * Returns undefined when the answer matches the defaults, so nothing is written.
+ * Needs credentials to know what exists; without them the question is skipped
+ * rather than asked in a form the user cannot answer.
+ */
+async function askModels(
+  asker: Asker,
+  t: (typeof INIT_TEXT)["zh"],
+): Promise<string[] | undefined> {
+  let models: Models;
   try {
-    const hint = fallback ? theme.dim(` [${fallback}]`) : theme.dim(" [skip]");
-    const answer = (await rl.question(`  ${question}${hint} › `)).trim();
-    return answer || fallback;
-  } finally {
-    rl.close();
+    models = await createModelRegistry();
+  } catch {
+    return undefined;
   }
+
+  const defaultRef = DEFAULT_CONFIG.budget.models[0]!;
+  const candidates = allModelCandidates(models);
+  const choices = modelChoices(candidates, defaultRef);
+  if (choices.length === 0) return undefined;
+
+  const defaultIndex = Math.max(
+    0,
+    choices.findIndex((c) => c.label === formatModelRef(defaultRef)),
+  );
+
+  process.stdout.write("\n");
+  const index = await asker.choice(
+    t.model,
+    choices.map((c) => `${c.label.padEnd(28)} ${theme.dim(`$${c.inputCost} / $${c.outputCost}`)}`),
+    defaultIndex,
+  );
+  const primary = choices[index]!.ref;
+
+  const suggested = suggestLadder(primary, candidates);
+  if (suggested.length === 0) return [formatModelRef(primary)];
+
+  process.stdout.write(`\n  ${t.ladder}\n\n`);
+  suggested.forEach((ref, i) => {
+    process.stdout.write(`   ${theme.dim("↓")} ${theme.accent(String(i + 1).padStart(2))}. ${formatModelRef(ref)}\n`);
+  });
+
+  const answer = await asker.line(`\n  ${t.ladderHint}`, "");
+  const picked = answer
+    .split(/[,，]/)
+    .map((n) => Number(n.trim()))
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= suggested.length)
+    .map((n) => suggested[n - 1]!);
+
+  const ladder = [primary, ...(picked.length > 0 ? picked : suggested)].map(formatModelRef);
+  const isDefault =
+    ladder.length === DEFAULT_CONFIG.budget.models.length &&
+    ladder.every((ref, i) => ref === formatModelRef(DEFAULT_CONFIG.budget.models[i]!));
+  return isDefault ? undefined : ladder;
 }
 
 /** Open the project config in $EDITOR, creating it if it does not exist yet. */
