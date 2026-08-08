@@ -1,24 +1,24 @@
 {
   "version": 1,
-  "runId": "2a008cf0e899",
+  "runId": "89acc558042e",
   "prUrl": "https://github.com/yanmxa/code-review/pull/1",
   "platform": "github",
-  "headSha": "b5afa3ffb7d18068231b1c8cf7f64a81adcc700d",
+  "headSha": "3a8205bd4802948dc2383c5d5233675c084dfb0f",
   "diffHash": "0b26c70c25e1e09142fdccb383f9614c7f313b93b90904110dbbd883e78d7b31",
-  "startedAt": "2026-08-08T03:44:37.172Z",
-  "updatedAt": "2026-08-08T03:45:10.901Z",
+  "startedAt": "2026-08-08T13:51:48.171Z",
+  "updatedAt": "2026-08-08T13:52:32.071Z",
   "spend": {
-    "usd": 0.038862,
-    "inputTokens": 3144,
-    "outputTokens": 1862,
-    "cacheReadTokens": 12288,
-    "calls": 8,
+    "usd": 0.0557775,
+    "inputTokens": 10281,
+    "outputTokens": 1877,
+    "cacheReadTokens": 7680,
+    "calls": 10,
     "byModel": {
       "openai/gpt-5.4": {
-        "usd": 0.038862,
-        "calls": 8,
-        "inputTokens": 3144,
-        "outputTokens": 1862
+        "usd": 0.0557775,
+        "calls": 10,
+        "inputTokens": 10281,
+        "outputTokens": 1877
       }
     }
   },
@@ -31,7 +31,7 @@
       "path": "demo/src/cache.ts",
       "status": "done",
       "findings": 2,
-      "spendUsd": 0.008843,
+      "spendUsd": 0.015697500000000003,
       "attempts": 1
     },
     {
@@ -39,23 +39,23 @@
       "path": "demo/src/config.ts",
       "status": "done",
       "findings": 2,
-      "spendUsd": 0.007396499999999999,
+      "spendUsd": 0.0086575,
       "attempts": 1
     },
     {
       "id": "demo/src/retry.ts",
       "path": "demo/src/retry.ts",
       "status": "done",
-      "findings": 1,
-      "spendUsd": 0.0058615,
+      "findings": 2,
+      "spendUsd": 0.013697500000000001,
       "attempts": 1
     },
     {
       "id": "demo/src/session.ts",
       "path": "demo/src/session.ts",
       "status": "done",
-      "findings": 4,
-      "spendUsd": 0.016761,
+      "findings": 5,
+      "spendUsd": 0.017725,
       "attempts": 1
     }
   ],

@@ -273,3 +273,25 @@ describe("report spend, in the budget's own unit", () => {
     expect(markdown).toContain("at list price");
   });
 });
+
+describe("report — CI state", () => {
+  it("states CI up front, before any finding", async () => {
+    // A reviewer should know the suite is red before reading a word of analysis.
+    const { report } = await harness([]);
+    report.checks = {
+      conclusion: "failure",
+      failed: [{ name: "unit tests" }],
+      annotations: [],
+    };
+    const markdown = renderReport(report);
+    expect(markdown).toContain("failure");
+    expect(markdown).toContain("unit tests");
+    expect(markdown.indexOf("CI")).toBeLessThan(markdown.indexOf("## "));
+  });
+
+  it("says nothing when the host cannot tell us", async () => {
+    const { report } = await harness([]);
+    report.checks = { conclusion: "unknown", failed: [], annotations: [] };
+    expect(renderReport(report)).not.toContain("| **CI** |");
+  });
+});

@@ -81,6 +81,7 @@ export async function executeRun(options: RunOptions): Promise<RunOutcome> {
     limit: result.budget.limit,
     spent: result.budget.spent,
     redactionStats: redactor.stats(),
+    ...(result.checks ? { checks: result.checks } : {}),
     budgetEvents,
     skipped: [
       ...skipped.map((entry) => ({ path: entry.path, reason: entry.reason })),

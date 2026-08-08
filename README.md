@@ -5,11 +5,23 @@ the evidence behind it. Built on the [pi](https://github.com/earendil-works/pi) 
 
 *[中文文档 →](README.zh.md)*
 
+**How it reads a pull request**
+
+- **Deterministic checks run first** — committed secrets, SQL concatenation, unsafe randomness, missing tests. These need no model, and a hit is adoptable-tier evidence
+- **One agent loop per file** — with read-only tools (read a file, search this PR's changes, run the TypeScript compiler), capped at six turns
+- **CI is fed in as fact** — a failing suite is the strongest evidence about a change, and it sits one API call away
+- **It only concludes what it can back** — machine-verifiable evidence is "adoptable", model reasoning is "for reference", and the two are never blurred
+- **A rejected comment is never raised again** — deleting or resolving one is a permanent no
+
+The full mechanism: [how a review runs](docs/how-it-works.zh.md) (Chinese).
+
+**Whether the tool itself is trustworthy**
+
 - **Survives being killed** — re-running the same command *is* resuming; there is no run id to remember
-- **Stays inside a budget** — downgrades the model as spend rises, stops at the limit, but still finishes the zero-cost checks
+- **Stays inside a budget** — downgrades the model as spend rises, stops at the limit, still finishes the zero-cost checks
 - **Every finding is traceable** — full prompt, raw model response, and tool calls in one file
-- **Two confidence tiers** — machine-verifiable evidence is "adoptable"; model reasoning is "for reference"
 - **Secrets never leave the machine** — redaction is type-enforced; the repo is never cloned and no repo code runs
+- **Rules and review focus are configurable** — a project writes its own checks and priorities in config, not in a fork
 
 ---
 
@@ -313,9 +325,31 @@ editable copy; `code-review config` shows the merged result.
     ]
   },
   "tools": { "ts_syntax_check": true },
+
+  "rules": {                                     // deterministic checks (adoptable-tier evidence)
+    "disabled": ["todo-added"],                  //   switch off a built-in you disagree with
+    "severity": { "console-log": "nit" },        //   re-grade one
+    "custom": [{                                 //   the check only your team can write
+      "id": "no-legacy-import",
+      "severity": "major",
+      "files": "\\.ts$",
+      "pattern": "from\\s+[\"'][^\"']*legacy/",
+      "title": "Imports from legacy/",
+      "body": "legacy/ is frozen. Move what you need into src/ first."
+    }]
+  },
+
+  "review": {                                    // the reviewer's priorities
+    "focus": "A Go service; error wrapping and context propagation matter most.",
+    "ignore": ["naming", "comment style"]        //   settled arguments, do not reopen
+  },
+
   "lang": "en"
 }
 ```
+
+`code-review config` prints the merged result — **"which model, which rules, what
+budget" should not require starting a run to answer**.
 
 **The ladder steps on the forecast, not on how much has been spent.** After each
 file it recomputes `spent ÷ fraction of files done`:
@@ -363,8 +397,9 @@ PR URL → fetch (REST, no clone) → redact → split into review units
        → dedupe → grade by evidence → report / TUI triage / post
 ```
 
-Three decisions worth stating; the reasoning is in the
-[design doc](docs/design.zh.md) (Chinese):
+The mechanism is documented in [how a review runs](docs/how-it-works.zh.md); the
+reasoning behind these three decisions is in the [design doc](docs/design.zh.md)
+(both Chinese):
 
 - **One agent loop per file**, not one call for the whole PR. A file is the unit
   a human reviewer thinks in, and it gives checkpoints, budget, and context a
@@ -388,7 +423,7 @@ and the [checkpoint file](examples/sample-state.json).
 ## Development
 
 ```bash
-npm test              # 230 tests, fully offline, no API key needed
+npm test              # 242 tests, fully offline, no API key needed
 npm run typecheck
 npm run dev -- <url>  # run from source via tsx
 ```

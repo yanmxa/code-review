@@ -371,3 +371,39 @@ describe("pipeline — dismissed findings", () => {
     expect(events.some((e) => e.type === "notice" && e.text.includes("Withheld"))).toBe(true);
   });
 });
+
+describe("pipeline — a model that never reports", () => {
+  it("nudges once even after the turn cap, keeping what it already paid for", async () => {
+    const adapter = new FakePlatform(SAMPLE_DIFF);
+    const { models, faux } = scriptedModels([]);
+    faux.setResponses([
+      // The model talks instead of reporting, and the turn cap is already spent.
+      fauxAssistantMessage("Let me look at this more closely."),
+      // The nudge lands, and the work is recovered.
+      submitMessage([
+        {
+          path: "src/cache.ts",
+          line: 13,
+          severity: "minor",
+          title: "Reported only after being nudged",
+          body: "…",
+          supportingToolCalls: [],
+        },
+      ]),
+      submitMessage([]),
+      submitMessage([]),
+    ]);
+
+    const result = await runReview(TEST_TARGET, {
+      adapter,
+      models,
+      redactor: new Redactor(),
+      // One turn: with the previous condition the nudge was skipped exactly
+      // when it was needed most, discarding rounds that had already been billed.
+      config: config({ maxTurnsPerUnit: 1 }),
+      emit: () => {},
+    });
+
+    expect(result.findings.some((f) => f.title === "Reported only after being nudged")).toBe(true);
+  });
+});

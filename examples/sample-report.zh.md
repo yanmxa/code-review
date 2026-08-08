@@ -4,17 +4,18 @@
 | --- | --- |
 | **拉取请求** | [yanmxa/code-review/pull/1](https://github.com/yanmxa/code-review/pull/1) |
 | **分支** | `demo/planted-defects` → `main` |
-| **Head** | `b5afa3ffb7` |
+| **Head** | `3a8205bd48` |
+| **CI** | ✅ success |
 | **已评审文件** | 4 / 4 |
-| **花费** | ¥0.28 / ¥6.00 (5.0k tokens) |
+| **花费** | ¥0.40 / ¥6.00 (12.2k tokens) |
 | **使用的模型** | `openai/gpt-5.4` |
-| **Run** | `2a008cf0e899` |
+| **Run** | `89acc558042e` |
 
 ## 概览
 
-共 9 条发现：5 条有确定性证据支撑、可直接采纳，4 条为模型推断、供参考。 其中 2 条为阻断级，建议合并前处理。
+共 11 条发现：7 条有确定性证据支撑、可直接采纳，4 条为模型推断、供参考。 其中 3 条为阻断级，建议合并前处理。
 
-## ✅ 可直接采纳（有确定性证据） (5)
+## ✅ 可直接采纳（有确定性证据） (7)
 
 ### F-001 · ● `demo/src/config.ts:4` — 提交中包含疑似密钥
 
@@ -64,7 +65,31 @@
 
 </details>
 
-### F-005 · ● `demo/src/session.ts:4` — 使用了宽松相等比较
+### F-005 · ● `demo/src/retry.ts:1` — 改动没有配套的测试变更
+
+**次要** · 可直接采纳
+
+这次改动为 `demo/src/retry.ts` 新增了 8 行逻辑，但本 PR 没有改动任何看起来覆盖它的测试文件。如果这段逻辑已被其他测试覆盖（或按文件名匹配不到），可以忽略本条——但它值得确认一次。
+
+<details><summary>证据 · 追踪: `traces/demo_src_retry.ts.jsonl`</summary>
+
+- 确定性规则 `no-test-change` 命中 `demo/src/retry.ts:1`：`export async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {`
+
+</details>
+
+### F-006 · ● `demo/src/session.ts:4` — 改动没有配套的测试变更
+
+**次要** · 可直接采纳
+
+这次改动为 `demo/src/session.ts` 新增了 8 行逻辑，但本 PR 没有改动任何看起来覆盖它的测试文件。如果这段逻辑已被其他测试覆盖（或按文件名匹配不到），可以忽略本条——但它值得确认一次。
+
+<details><summary>证据 · 追踪: `traces/demo_src_session.ts.jsonl`</summary>
+
+- 确定性规则 `no-test-change` 命中 `demo/src/session.ts:4`：`return sessions.find((s) => s.id == id);`
+
+</details>
+
+### F-007 · ● `demo/src/session.ts:4` — 使用了宽松相等比较
 
 **次要** · 可直接采纳
 
@@ -78,57 +103,51 @@
 
 ## 💭 仅供参考（模型推断） (4)
 
-### F-006 · ○ `demo/src/cache.ts:11-13` — 更新已存在的 key 时会错误驱逐其他缓存项
+### F-008 · ○ `demo/src/config.ts:5` — 提交中硬编码了 AWS secret access key
 
-**重要** · 仅供参考
+**阻断** · 仅供参考
 
-这里在 `size >= max` 时无条件删除最旧项，但 `Map.set` 覆盖一个已存在的 key 并不会增加容量。结果是在缓存已满时更新现有 key，也会平白删掉另一条记录，导致缓存内容丢失。应先判断 `key` 是否已存在，只在插入新 key 且容量已满时才执行驱逐。
-
-<details><summary>证据 · 追踪: `traces/demo_src_cache.ts.jsonl`</summary>
-
-- 模型推断：我查看了完整文件，`set` 是唯一的写入口；当前逻辑在满容量时先驱逐、后 `set`，没有区分“新增”与“覆盖”两种情况，因此会在覆盖现有键时错误删除其他条目。
-
-</details>
-
-### F-007 · ○ `demo/src/config.ts:4` — 源码中新增了云凭证配置项
-
-**重要** · 仅供参考
-
-这里把 `awsSecretAccessKey` 直接放进了可提交的配置对象中；即使当前值是示例值，这种模式也会让真实凭证被复制进仓库，并且运行时也更难通过环境变量或密钥管理服务隔离不同环境。请改为从环境变量或专用的 secret manager 读取，并避免在默认配置里保留任何密钥字段。
+`awsSecretAccessKey` 被直接写入源码，会使任何能访问仓库或构建产物的人获得长期凭证。这类密钥应从提交历史中移除并立即轮换，运行时改为通过环境变量或密钥管理服务注入。
 
 <details><summary>证据 · 追踪: `traces/demo_src_config.ts.jsonl`</summary>
 
-- 模型推断：这是一个明确的安全问题：把密钥字段作为源码中的静态配置提交，会鼓励并固化不安全的凭证管理方式。尽管自动检查已提示该行疑似密钥，这里的问题是该设计本身不应出现在代码中。
+- 模型推断：差异中新增了一条明显的 AWS secret access key；自动检查已覆盖上一行的 access key id，但这一行同样是需要单独处理的凭证泄露。
 
 </details>
 
-### F-008 · ○ `demo/src/retry.ts:3` — 重试次数存在 off-by-one，实际会多调用一次
+### F-009 · ○ `demo/src/cache.ts:11-13` — 满容量时更新已有 key 会错误驱逐其他缓存项
 
 **重要** · 仅供参考
 
-当前循环条件 `i <= attempts` 会让 `fn` 最多执行 `attempts + 1` 次，因此默认值 `3` 实际会尝试 4 次。这会悄悄改变调用方对 `attempts` 参数的语义预期，并可能导致多一次副作用操作。应将条件改为 `< attempts`，或者把参数明确重命名为总尝试次数之外的“重试次数”。
+这里在 `size >= max` 时先执行驱逐，但没有先判断 `key` 是否已经存在。这样当缓存已满且调用 `set` 只是更新一个已有 key 时，也会把最旧的另一项删掉，导致无关数据被意外驱逐。应先检查 `this.map.has(key)`，只有插入新 key 且容量已满时才淘汰旧项。
 
-**建议改法**
+<details><summary>证据 · 追踪: `traces/demo_src_cache.ts.jsonl`</summary>
 
-```suggestion
-for (let i = 0; i < attempts; i++) {
-```
+- 模型推断：结合文件上下文可见 `set` 既用于新增也用于更新；当前新增的驱逐逻辑对这两种情况一视同仁，因此在更新已有键时会触发错误淘汰。
+
+</details>
+
+### F-010 · ○ `demo/src/retry.ts:3` — 重试次数循环存在 off-by-one，实际会多执行一次
+
+**重要** · 仅供参考
+
+这里使用 `i <= attempts` 会让 `fn` 最多执行 `attempts + 1` 次；例如默认值 `attempts = 3` 时会尝试 4 次。函数名和参数名都表明 `attempts` 表示总尝试次数，因此这会让调用方在失败场景下多发一次请求/写操作。建议改为 `i < attempts`，或者把参数重命名为 `retries` 来匹配当前行为。
 
 <details><summary>证据 · 追踪: `traces/demo_src_retry.ts.jsonl`</summary>
 
-- 模型推断：直接根据循环边界可知，当 `attempts = 3` 时，`i` 会取 0、1、2、3 共四次。
+- 模型推断：直接根据循环边界和默认参数推导：`i` 从 0 开始且包含上界，会比声明的 attempts 多执行一次。
 
 </details>
 
-### F-009 · ○ `demo/src/session.ts:15-16` — 吞掉数据库异常会把真实故障伪装成“查无会话”
+### F-011 · ○ `demo/src/session.ts:15` — 吞掉数据库异常会把失败伪装成“未找到会话”
 
 **重要** · 仅供参考
 
-这里的 `catch` 块直接忽略了 `db.query(...)` 抛出的异常，导致 `loadSession` 在数据库失败时返回 `undefined`。调用方无法区分“没有 session”和“查询失败”，很容易继续按未登录/空结果处理，从而掩盖线上故障并绕过上层的重试或告警逻辑。至少应重新抛出异常，或返回一个显式的错误结果。
+这里的 `catch` 为空，`db.query(...)` 失败时 `loadSession` 会静默返回 `undefined`。调用方将无法区分“没有 session”与“数据库出错”，这会掩盖真实故障并让上层继续在错误状态下运行。至少应重新抛出异常，或返回一个明确的错误结果。
 
 <details><summary>证据 · 追踪: `traces/demo_src_session.ts.jsonl`</summary>
 
-- 模型推断：通读文件可见 `loadSession` 在 `catch` 中没有任何返回或抛错，因此 Promise 会以 `undefined` 成功结束，改变了失败路径的语义。
+- 模型推断：通读该文件可见 `loadSession` 在 `catch` 分支没有任何返回或抛出，因此 Promise 会以 `undefined` 成功结束，改变了错误处理语义。
 
 </details>
 
@@ -138,16 +157,16 @@ for (let i = 0; i < attempts; i++) {
 
 | 模型 | 调用 | 输入 token | 输出 token | USD |
 | --- | ---: | ---: | ---: | ---: |
-| `openai/gpt-5.4` | 8 | 3,144 | 1,862 | 0.0389 |
-| **合计** | **8** | **3,144** | **1,862** | **0.0389** |
+| `openai/gpt-5.4` | 10 | 10,281 | 1,877 | 0.0558 |
+| **合计** | **10** | **10,281** | **1,877** | **0.0558** |
 
 ### 脱敏统计
 
 以下内容在发送给模型之前已被替换为占位符，原值从未离开本机。
 
 - `aws-access-key` × 1
-- `high-entropy` × 65
+- `high-entropy` × 119
 
 ---
 
-_由 code-review 生成 · 2026-08-08T03:45:10.905Z_
+_由 code-review 生成 · 2026-08-08T13:52:32.074Z_

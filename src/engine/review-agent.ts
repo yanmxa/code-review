@@ -16,6 +16,7 @@ import { selectTools } from "../tools/index.js";
 import type { RawFinding, SubmitDetails, ToolContext } from "../tools/spec.js";
 import type { Tracer } from "../trace/tracer.js";
 import type { ModelRef, PrSnapshot, ReviewUnit } from "../types.js";
+import type { CheckSummary } from "../platform/adapter.js";
 import type { RuleHit } from "./rules-engine.js";
 import { buildUnitPrompt, SYSTEM_PROMPT } from "./prompts.js";
 
@@ -47,6 +48,8 @@ export interface ReviewAgentDeps {
    * of them.
    */
   onStaticDiagnostics?: (hits: StaticHit[]) => void;
+  /** CI state, handed to the model as fact rather than left to inference. */
+  checks?: CheckSummary;
   signal?: AbortSignal;
 }
 
@@ -104,7 +107,7 @@ export async function reviewUnit(
 
   const agent = new Agent({
     initialState: {
-      systemPrompt: SYSTEM_PROMPT(selection.promptSnippets, config.lang),
+      systemPrompt: SYSTEM_PROMPT(selection.promptSnippets, config.lang, config.review),
       model: resolved,
       thinkingLevel: "low",
       tools: selection.tools,
@@ -146,14 +149,18 @@ export async function reviewUnit(
   });
 
   try {
-    await agent.prompt(buildUnitPrompt(unit, ruleHits, deps.snapshot, config.lang));
+    await agent.prompt(buildUnitPrompt(unit, ruleHits, deps.snapshot, config.lang, deps.checks));
 
-    // A model that talked instead of submitting gets exactly one nudge. Beyond
-    // that we take the empty result rather than pay for an argument.
-    if (run.submitted === null && !budget.hardStopped && turns < config.maxTurnsPerUnit) {
-      turns = Math.max(turns, config.maxTurnsPerUnit - 1);
+    // One nudge, whatever the reason it stopped without reporting.
+    //
+    // Running out of turns is the case that matters: the model has already been
+    // paid for several rounds of reading the file, and discarding that because
+    // it never said "done" throws away the whole unit. The nudge costs one call
+    // and recovers it. `shouldStopAfterTurn` ends the run straight after, so
+    // this can never loop.
+    if (run.submitted === null && !budget.hardStopped) {
       await agent.prompt(
-        "Call submit_findings now with your findings for this file. " +
+        "You are out of turns for this file. Call submit_findings now with whatever you have. " +
           "If you found nothing worth reporting, call it with an empty findings list.",
       );
     }

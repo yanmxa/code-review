@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildUnitPrompt, SYSTEM_PROMPT } from "../src/engine/prompts.js";
 import { selectTools, TOOL_REGISTRY } from "../src/tools/index.js";
 import { typecheckInMemory } from "../src/tools/ts-syntax-check.js";
 import { Redactor } from "../src/security/redactor.js";
@@ -137,5 +138,82 @@ describe("ts_syntax_check", () => {
     // throw or write a file; it does neither.
     const hostile = `throw new Error("should not run");\nrequire("node:fs").writeFileSync("/tmp/pwned", "x");\n`;
     expect(() => typecheckInMemory("a.ts", hostile)).not.toThrow();
+  });
+});
+
+describe("reviewer prompt — a project can steer it", () => {
+  it("carries the project's focus into the instructions", () => {
+    const prompt = SYSTEM_PROMPT(["a — b"], "en", {
+      focus: "This is a Go service; unwrapped errors are the thing we care about.",
+      ignore: [],
+    });
+    expect(prompt).toContain("unwrapped errors");
+  });
+
+  it("names settled topics the reviewer must not reopen", () => {
+    const prompt = SYSTEM_PROMPT(["a — b"], "en", { ignore: ["naming", "comment style"] });
+    expect(prompt).toContain("naming");
+    expect(prompt).toContain("comment style");
+    expect(prompt).toMatch(/do not raise/i);
+  });
+
+  it("adds nothing when the project said nothing", () => {
+    const bare = SYSTEM_PROMPT(["a — b"], "en");
+    expect(bare).not.toMatch(/do not raise/i);
+    expect(bare).not.toContain("What this project cares about");
+  });
+});
+
+describe("unit prompt — CI is given as fact", () => {
+  function unitOf(path: string) {
+    return {
+      id: path,
+      path,
+      change: "modified" as const,
+      hunks: [],
+      additions: 3,
+      deletions: 0,
+      patch: "@@ -1 +1 @@\n+x" as never,
+    };
+  }
+
+  it("hands the model the failing checks and their diagnostics for this file", async () => {
+    const adapter = new FakePlatform(SAMPLE_DIFF);
+    const snapshot = await adapter.fetchPr(TEST_TARGET);
+    const prompt = buildUnitPrompt(unitOf("src/cache.ts"), [], snapshot, "en", {
+      conclusion: "failure",
+      failed: [{ name: "vitest", summary: "1 failing" }],
+      annotations: [
+        { path: "src/cache.ts", line: 12, level: "failure", message: "expected b, got a" },
+        { path: "src/other.ts", line: 3, level: "failure", message: "unrelated" },
+      ],
+    });
+
+    expect(prompt).toContain("vitest");
+    expect(prompt).toContain("expected b, got a");
+    // A diagnostic about another file would invite the model to blame this one.
+    expect(prompt).not.toContain("unrelated");
+  });
+
+  it("says so plainly when nothing points at this file", async () => {
+    const adapter = new FakePlatform(SAMPLE_DIFF);
+    const snapshot = await adapter.fetchPr(TEST_TARGET);
+    const prompt = buildUnitPrompt(unitOf("src/cache.ts"), [], snapshot, "en", {
+      conclusion: "failure",
+      failed: [{ name: "vitest" }],
+      annotations: [],
+    });
+    expect(prompt).toMatch(/Do not assume the failure is caused here/i);
+  });
+
+  it("stays silent when CI is green", async () => {
+    const adapter = new FakePlatform(SAMPLE_DIFF);
+    const snapshot = await adapter.fetchPr(TEST_TARGET);
+    const prompt = buildUnitPrompt(unitOf("src/cache.ts"), [], snapshot, "en", {
+      conclusion: "success",
+      failed: [],
+      annotations: [],
+    });
+    expect(prompt).not.toContain("Continuous integration");
   });
 });

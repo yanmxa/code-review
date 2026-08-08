@@ -2,7 +2,7 @@ import type { Models } from "@earendil-works/pi-ai";
 import { BudgetManager } from "../budget/budget.js";
 import { hashDiff, RunStore } from "../checkpoint/store.js";
 import type { Config } from "../config.js";
-import type { PlatformAdapter } from "../platform/adapter.js";
+import type { CheckSummary, PlatformAdapter } from "../platform/adapter.js";
 import type { Redactor } from "../security/redactor.js";
 import { selectTools } from "../tools/index.js";
 import type { ToolContext } from "../tools/spec.js";
@@ -36,6 +36,8 @@ export interface PipelineResult {
   snapshot: PrSnapshot;
   budget: BudgetManager;
   resumed: boolean;
+  /** CI state at the head commit, when the host could tell us. */
+  checks?: CheckSummary;
 }
 
 /**
@@ -65,6 +67,17 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
   store.saveSnapshot(snapshot);
 
   // --- Plan --------------------------------------------------------------
+  // One request, before any model call: CI is a fact about this change, and
+  // reviewing without it means inferring what was already measured.
+  const checks = await adapter.fetchChecks?.(target, snapshot.meta.headSha).catch(() => undefined);
+  if (checks && checks.conclusion === "failure") {
+    emit({
+      type: "notice",
+      level: "warn",
+      text: `CI is failing on this head commit (${checks.failed.map((run) => run.name).join(", ")}).`,
+    });
+  }
+
   const { units, skipped } = planUnits(snapshot.files, config.maxUnitDiffLines);
   const ruleContext: PrRuleContext = { changedPaths: snapshot.files.map((file) => file.path) };
   store.initUnits(units.map((unit) => ({ id: unit.id, path: unit.path })));
@@ -131,7 +144,7 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
     emit({ type: "unit_start", unitId: unit.id });
     store.markUnit(unit.id, { status: "in_progress", attempts: state.attempts + 1 });
 
-    const reviewed = await reviewOneUnit(unit, { ...deps, snapshot, budget, store, ruleContext });
+    const reviewed = await reviewOneUnit(unit, { ...deps, snapshot, budget, store, ruleContext, checks });
     const unitFindings = { ...reviewed, findings: keep(reviewed.findings) };
 
     findings.push(...unitFindings.findings);
@@ -179,7 +192,7 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
   store.finish();
   persistSpend(store, budget);
 
-  return { findings: kept, suppressed, store, snapshot, budget, resumed };
+  return { findings: kept, suppressed, store, snapshot, budget, resumed, checks };
 }
 
 async function reviewOneUnit(
@@ -189,6 +202,7 @@ async function reviewOneUnit(
     budget: BudgetManager;
     store: RunStore;
     ruleContext: PrRuleContext;
+    checks?: CheckSummary;
   },
 ): Promise<{ findings: Finding[]; summary: string; spendUsd: number; status: "done" | "failed" }> {
   const { config, redactor, store, budget, emit } = deps;
@@ -196,7 +210,7 @@ async function reviewOneUnit(
 
   // Deterministic pass first: its output is both a finding source and context
   // that stops the model from re-reporting what a regex already caught.
-  const ruleHits = redactHits(runRules(unit, config.lang, deps.ruleContext), redactor);
+  const ruleHits = redactHits(runRules(unit, config.lang, deps.ruleContext, config.rules), redactor);
   for (const hit of ruleHits) {
     tracer.write({ type: "rule_hit", ruleId: hit.ruleId, path: hit.path, line: hit.line });
   }
@@ -223,6 +237,7 @@ async function reviewOneUnit(
       );
     },
     onStaticDiagnostics: (hits) => staticHits.push(...hits),
+    ...(deps.checks ? { checks: deps.checks } : {}),
   });
 
   const toolContext: ToolContext = {
@@ -267,7 +282,7 @@ function runRulesOnly(
   const tracer = Tracer.forUnit(deps.store.dirs.root, unit.id, deps.redactor);
   tracer.write({ type: "budget", kind: "hard_stop", detail: "rules-only pass; no model calls" });
 
-  const hits = redactHits(runRules(unit, deps.config.lang, deps.ruleContext), deps.redactor);
+  const hits = redactHits(runRules(unit, deps.config.lang, deps.ruleContext, deps.config.rules), deps.redactor);
   for (const hit of hits) {
     tracer.write({ type: "rule_hit", ruleId: hit.ruleId, path: hit.path, line: hit.line });
   }

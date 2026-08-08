@@ -1,4 +1,5 @@
 import { type BudgetUnit, formatBudget, formatTokenCount } from "../budget/limit.js";
+import type { CheckSummary } from "../platform/adapter.js";
 import type { Language } from "../config.js";
 import { confidenceLabel, severityLabel, skipLabel, t } from "../i18n/messages.js";
 import type {
@@ -20,6 +21,8 @@ export interface ReportInput {
   limit: number;
   spent: number;
   redactionStats: Record<string, number>;
+  /** CI state at the head commit, when the host could tell us. */
+  checks?: CheckSummary;
   budgetEvents: { kind: string; detail: string }[];
   skipped: { path: string; reason: Parameters<typeof skipLabel>[0] }[];
 }
@@ -84,6 +87,16 @@ function renderMetaTable(input: ReportInput): string {
     [t("modelsUsed", lang), Object.keys(state.spend.byModel).map((id) => `\`${id}\``).join(", ") || "—"],
     ["Run", `\`${state.runId}\``],
   ];
+
+  if (input.checks && input.checks.conclusion !== "unknown") {
+    const glyph =
+      input.checks.conclusion === "success" ? "✅" : input.checks.conclusion === "failure" ? "❌" : "⏳";
+    const detail =
+      input.checks.failed.length > 0
+        ? ` — ${input.checks.failed.map((run) => `\`${run.name}\``).join(", ")}`
+        : "";
+    rows.splice(3, 0, ["CI", `${glyph} ${input.checks.conclusion}${detail}`]);
+  }
   return [
     `| | |`,
     `| --- | --- |`,

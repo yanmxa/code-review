@@ -1,4 +1,4 @@
-import type { Language } from "../config.js";
+import type { CustomRule, Language, RulesConfig } from "../config.js";
 import { addedLines } from "../platform/diff.js";
 import type { Redactor } from "../security/redactor.js";
 import type { ReviewUnit, Severity } from "../types.js";
@@ -262,16 +262,28 @@ function isSubstantive(text: string): boolean {
  * re-implementing detection — a `[REDACTED:...]` marker on an added line is
  * proof a credential was committed.
  */
-export function runRules(unit: ReviewUnit, lang: Language, context?: PrRuleContext): RuleHit[] {
+export function runRules(
+  unit: ReviewUnit,
+  lang: Language,
+  context?: PrRuleContext,
+  config?: RulesConfig,
+): RuleHit[] {
   const hits: RuleHit[] = [];
+  const disabled = new Set(config?.disabled ?? []);
+  const regrade = config?.severity ?? {};
+  const active = [...RULES, ...compileCustom(config?.custom ?? [])].filter(
+    (rule) => !disabled.has(rule.id),
+  );
 
-  if (context) {
+  if (context && !disabled.has("no-test-change")) {
     const missing = missingTestCoverage(unit, context, lang);
-    if (missing) hits.push(missing);
+    if (missing) hits.push({ ...missing, severity: regrade["no-test-change"] ?? missing.severity });
   }
 
   for (const { line, text } of addedLines(unit.hunks)) {
-    const secret = text.match(/\[REDACTED:([a-z0-9-]+):[a-f0-9]{4}\]/);
+    const secret = disabled.has("secret-in-diff")
+      ? null
+      : text.match(/\[REDACTED:([a-z0-9-]+):[a-f0-9]{4}\]/);
     if (secret && secret[1] !== "runtime-credential") {
       hits.push({
         ruleId: "secret-in-diff",
@@ -287,7 +299,7 @@ export function runRules(unit: ReviewUnit, lang: Language, context?: PrRuleConte
       });
     }
 
-    for (const rule of RULES) {
+    for (const rule of active) {
       if (rule.files && !rule.files.test(unit.path)) continue;
       if (rule.unless?.test(text)) continue;
       rule.pattern.lastIndex = 0;
@@ -301,7 +313,7 @@ export function runRules(unit: ReviewUnit, lang: Language, context?: PrRuleConte
         path: unit.path,
         line,
         excerpt: text.trim(),
-        severity: rule.severity,
+        severity: regrade[rule.id] ?? rule.severity,
         title: rule.title[lang],
         body: rule.body[lang],
       });
@@ -311,9 +323,39 @@ export function runRules(unit: ReviewUnit, lang: Language, context?: PrRuleConte
   return hits;
 }
 
+/**
+ * Turn config-declared rules into the same shape as the built-ins.
+ *
+ * A project's own conventions — "always wrap errors", "never import from
+ * `legacy/`" — are exactly the checks that are worth being deterministic and
+ * that only the team can write. Requiring a fork to express them would leave
+ * the extensibility story covering tools alone.
+ *
+ * Patterns are validated when the config loads, so a typo fails loudly at
+ * startup instead of quietly matching nothing.
+ */
+function compileCustom(custom: CustomRule[]): Rule[] {
+  return custom.map((rule) => ({
+    id: rule.id,
+    severity: rule.severity,
+    pattern: new RegExp(rule.pattern),
+    ...(rule.requires ? { requires: new RegExp(rule.requires) } : {}),
+    ...(rule.unless ? { unless: new RegExp(rule.unless) } : {}),
+    ...(rule.files ? { files: new RegExp(rule.files) } : {}),
+    // A project writes its rule once, in its own language.
+    title: { zh: rule.title, en: rule.title },
+    body: { zh: rule.body, en: rule.body },
+  }));
+}
+
 /** Rule hits carry no model output, but excerpts still pass through the redactor. */
 export function redactHits(hits: RuleHit[], redactor: Redactor): RuleHit[] {
   return hits.map((hit) => ({ ...hit, excerpt: redactor.redact(hit.excerpt) }));
 }
 
-export const RULE_IDS = [...RULES.map((rule) => rule.id), "secret-in-diff", "no-test-change"];
+/** Every check that ships in the box, for `code-review config`. */
+export const BUILTIN_RULE_IDS = [
+  ...RULES.map((rule) => rule.id),
+  "secret-in-diff",
+  "no-test-change",
+];

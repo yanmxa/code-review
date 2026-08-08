@@ -23,6 +23,7 @@ import {
 import { authStatus, terminalInteraction } from "./auth/login.js";
 import { FileCredentialStore } from "./auth/credential-store.js";
 import { parseBudgetLimit, serializeBudgetLimit } from "./budget/limit.js";
+import { BUILTIN_RULE_IDS } from "./engine/rules-engine.js";
 import { DismissalStore } from "./memory/dismissals.js";
 import { parseTarget } from "./platform/adapter.js";
 import { createModelRegistry, executeRun, KNOWN_PROVIDERS, providerForLogin } from "./run.js";
@@ -311,8 +312,30 @@ function commandConfig(config: Config): number {
   w(`  split files at  ${theme.accent(String(config.maxUnitDiffLines))} ${theme.dim("diff lines")}`);
   w(`  checkpoints     ${theme.dim(config.runDir)}`);
 
-  const disabled = Object.entries(config.tools).filter(([, on]) => !on).map(([id]) => id);
-  w(`  tools           ${disabled.length === 0 ? theme.dim("all enabled") : theme.warn(`disabled: ${disabled.join(", ")}`)}`);
+  const disabledTools = Object.entries(config.tools).filter(([, on]) => !on).map(([id]) => id);
+  w(`  tools           ${disabledTools.length === 0 ? theme.dim("all enabled") : theme.warn(`disabled: ${disabledTools.join(", ")}`)}`);
+
+  w("");
+  w(theme.strong("Rules") + theme.dim("  (deterministic checks — these produce adoptable findings)"));
+  w(`  built-in        ${theme.accent(String(BUILTIN_RULE_IDS.length))} ${theme.dim(BUILTIN_RULE_IDS.join(", "))}`);
+  if (config.rules.disabled.length > 0) {
+    w(`  disabled        ${theme.warn(config.rules.disabled.join(", "))}`);
+  }
+  for (const [id, severity] of Object.entries(config.rules.severity)) {
+    w(`  re-graded       ${theme.accent(id)} ${theme.dim(`→ ${severity}`)}`);
+  }
+  for (const rule of config.rules.custom) {
+    w(`  project rule    ${theme.accent(rule.id)} ${theme.dim(`${rule.severity} · /${rule.pattern}/`)}`);
+  }
+
+  if (config.review.focus || config.review.ignore.length > 0) {
+    w("");
+    w(theme.strong("Reviewer"));
+    if (config.review.focus) w(`  focus           ${theme.text(config.review.focus)}`);
+    if (config.review.ignore.length > 0) {
+      w(`  will not raise  ${theme.dim(config.review.ignore.join(", "))}`);
+    }
+  }
   return 0;
 }
 

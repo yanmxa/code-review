@@ -30,6 +30,21 @@ export interface ReviewPayload {
   comments: InlineComment[];
 }
 
+/**
+ * What continuous integration currently says about the head commit.
+ *
+ * A failing test suite is the strongest evidence about a change that exists,
+ * and unlike anything the model can infer, it is a fact. Fetching it costs one
+ * request; reasoning about correctness without it means arguing with an answer
+ * that was already available.
+ */
+export interface CheckSummary {
+  conclusion: "success" | "failure" | "pending" | "unknown";
+  failed: { name: string; summary?: string; url?: string }[];
+  /** Machine-produced diagnostics anchored to a file and line. */
+  annotations: { path: string; line: number; level: string; message: string }[];
+}
+
 export interface PostResult {
   posted: number;
   /** Comments that could not be anchored and were folded into the summary. */
@@ -50,6 +65,8 @@ export interface PlatformAdapter {
   /** File content at a ref, redacted. `null` when the path does not exist there. */
   fetchFile(target: Target, path: string, ref: string): Promise<Redacted | null>;
   listExistingComments(target: Target): Promise<MarkerComment[]>;
+  /** CI state for a commit. Implementations may return `unknown` when unavailable. */
+  fetchChecks?(target: Target, ref: string): Promise<CheckSummary>;
   postReview(target: Target, payload: ReviewPayload): Promise<PostResult>;
 }
 

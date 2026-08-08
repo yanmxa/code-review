@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseBudgetLimit } from "./budget/limit.js";
-import type { BudgetConfig, ModelRef } from "./types.js";
+import type { BudgetConfig, ModelRef, Severity } from "./types.js";
 
 export type Language = "zh" | "en";
 
@@ -17,6 +17,10 @@ export interface Config {
   };
   /** Per-tool enable/disable, keyed by ToolSpec.meta.id. */
   tools: Record<string, boolean>;
+  /** Project-specific deterministic checks, layered over the built-ins. */
+  rules: RulesConfig;
+  /** What this project wants the reviewer to care about. */
+  review: ReviewConfig;
   lang: Language;
   /** Max turns a single review unit may take before it is forced to submit. */
   maxTurnsPerUnit: number;
@@ -29,6 +33,47 @@ export interface Config {
   runDir: string;
   /** Discard any existing checkpoint for this PR and start over. */
   fresh: boolean;
+}
+
+/**
+ * Deterministic checks a project can add, silence, or re-grade.
+ *
+ * The built-in rules encode what is true of most code. What is true of *this*
+ * codebase — "always wrap errors", "never import from `legacy/`" — only the
+ * team knows, and requiring a fork to express it would make the extensibility
+ * claim apply to tools alone.
+ */
+export interface RulesConfig {
+  /** Built-in rule ids to switch off. */
+  disabled: string[];
+  /** Re-grade a built-in, e.g. `{"todo-added": "nit"}`. */
+  severity: Record<string, Severity>;
+  custom: CustomRule[];
+}
+
+export interface CustomRule {
+  id: string;
+  severity: Severity;
+  /** JavaScript regular expression source, matched against each added line. */
+  pattern: string;
+  /** Optional second pattern that must also match the same line. */
+  requires?: string;
+  /** Suppress the rule on lines matching this. */
+  unless?: string;
+  /** Restrict to paths matching this regular expression. */
+  files?: string;
+  title: string;
+  body: string;
+}
+
+export interface ReviewConfig {
+  /**
+   * Appended to the reviewer's instructions. The place to say "this is a Go
+   * service, watch error wrapping" or "we care about accessibility".
+   */
+  focus?: string;
+  /** Topics the reviewer must not raise, e.g. ["naming", "comment style"]. */
+  ignore: string[];
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -49,6 +94,8 @@ export const DEFAULT_CONFIG: Config = {
     verify: { provider: "openai", id: "gpt-5.4-mini" },
   },
   tools: {},
+  rules: { disabled: [], severity: {}, custom: [] },
+  review: { ignore: [] },
   lang: "zh",
   maxTurnsPerUnit: 6,
   fileContextLines: 2000,
@@ -64,7 +111,9 @@ export type ConfigOverrides = {
   budget?: Partial<BudgetConfig> | Record<string, unknown>;
   models?: Partial<Config["models"]>;
   tools?: Record<string, boolean>;
-} & Partial<Omit<Config, "budget" | "models" | "tools">>;
+  rules?: Partial<RulesConfig>;
+  review?: Partial<ReviewConfig>;
+} & Partial<Omit<Config, "budget" | "models" | "tools" | "rules" | "review">>;
 
 /**
  * Merge layers in precedence order: defaults < user config < project config <
@@ -74,7 +123,7 @@ export type ConfigOverrides = {
 export function resolveConfig(...layers: ConfigOverrides[]): Config {
   let config: Config = structuredClone(DEFAULT_CONFIG);
   for (const layer of layers) {
-    const { budget, models, tools, ...rest } = layer;
+    const { budget, models, tools, rules, review, ...rest } = layer;
     const migrated = budget ? migrateBudget(budget as Record<string, unknown>) : {};
     config = {
       ...config,
@@ -82,6 +131,18 @@ export function resolveConfig(...layers: ConfigOverrides[]): Config {
       budget: { ...config.budget, ...stripUndefined(migrated) },
       models: { ...config.models, ...stripUndefined(models ?? {}) },
       tools: { ...config.tools, ...(tools ?? {}) },
+      rules: {
+        disabled: [...config.rules.disabled, ...(rules?.disabled ?? [])],
+        severity: { ...config.rules.severity, ...(rules?.severity ?? {}) },
+        // Custom rules accumulate: a project config should be able to add to
+        // the user's personal ones rather than silently replace them.
+        custom: [...config.rules.custom, ...(rules?.custom ?? [])],
+      },
+      review: {
+        ...config.review,
+        ...stripUndefined(review ?? {}),
+        ignore: [...config.review.ignore, ...(review?.ignore ?? [])],
+      },
     };
   }
   validate(config);
@@ -96,6 +157,24 @@ function validate(config: Config): void {
   if (!(config.budget.limit.amount > 0)) throw new Error("budget.limit must be greater than zero");
   if (!(config.budget.usdToCny > 0)) throw new Error("budget.usdToCny must be > 0");
   if (config.budget.models.length === 0) throw new Error("budget.models must list at least one model");
+
+  // A malformed custom rule must fail at startup, not silently never match.
+  for (const rule of config.rules.custom) {
+    if (!rule.id) throw new Error("Every rules.custom entry needs an id");
+    for (const [field, source] of [
+      ["pattern", rule.pattern],
+      ["requires", rule.requires],
+      ["unless", rule.unless],
+      ["files", rule.files],
+    ] as const) {
+      if (source === undefined) continue;
+      try {
+        new RegExp(source);
+      } catch (error) {
+        throw new Error(`rules.custom["${rule.id}"].${field} is not a valid regex: ${(error as Error).message}`);
+      }
+    }
+  }
 }
 
 /**

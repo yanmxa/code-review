@@ -5,6 +5,7 @@ import type { Redactor } from "../security/redactor.js";
 import { parseUnifiedDiff } from "./diff.js";
 import {
   type AdapterDeps,
+  type CheckSummary,
   findingMarker,
   type MarkerComment,
   parseMarker,
@@ -87,6 +88,67 @@ export class GitHubAdapter implements PlatformAdapter {
       if (error instanceof HttpError && error.status === 404) return null;
       throw error;
     }
+  }
+
+  /**
+   * CI state, plus whatever diagnostics the failing checks anchored to a file.
+   *
+   * Annotations are the valuable part: a check that says "cache.test.ts:12
+   * expected b, got a" points at the defect far more precisely than the model
+   * can from the diff. Failures here are swallowed — a review must not depend
+   * on a repository having CI at all.
+   */
+  async fetchChecks(target: Target, ref: string): Promise<CheckSummary> {
+    const repo = `${target.apiBase}/repos/${target.owner}/${target.repo}`;
+    const empty: CheckSummary = { conclusion: "unknown", failed: [], annotations: [] };
+
+    let runs: GitHubCheckRun[];
+    try {
+      const response = await this.request<{ check_runs?: GitHubCheckRun[] }>(
+        `${repo}/commits/${encodeURIComponent(ref)}/check-runs?per_page=100`,
+      );
+      runs = response.check_runs ?? [];
+    } catch {
+      return empty;
+    }
+    if (runs.length === 0) return empty;
+
+    const failed = runs.filter((run) => run.conclusion === "failure" || run.conclusion === "timed_out");
+    const pending = runs.some((run) => run.status !== "completed");
+
+    const summary: CheckSummary = {
+      conclusion: failed.length > 0 ? "failure" : pending ? "pending" : "success",
+      failed: failed.map((run) => ({
+        name: run.name ?? "check",
+        ...(run.output?.summary ? { summary: truncate(run.output.summary, 300) } : {}),
+        ...(run.html_url ? { url: run.html_url } : {}),
+      })),
+      annotations: [],
+    };
+
+    // Only failing checks are worth the extra requests, and only a few of them:
+    // a run with hundreds of annotations is a linter, not a signal.
+    for (const run of failed.slice(0, 5)) {
+      try {
+        const notes = await this.request<GitHubAnnotation[]>(
+          `${repo}/check-runs/${run.id}/annotations?per_page=50`,
+        );
+        for (const note of notes) {
+          if (!note.path || typeof note.start_line !== "number") continue;
+          summary.annotations.push({
+            path: note.path,
+            line: note.start_line,
+            level: note.annotation_level ?? "failure",
+            message: this.redactor.redact(
+              `${note.title ? `${note.title}: ` : ""}${note.message ?? ""}`.trim(),
+            ),
+          });
+        }
+      } catch {
+        // A run without readable annotations still counts as a failure.
+      }
+    }
+    return summary;
   }
 
   async listExistingComments(target: Target): Promise<MarkerComment[]> {
@@ -311,6 +373,23 @@ function truncate(text: string, max = 400): string {
 }
 
 export { findingMarker, SUMMARY_MARKER };
+
+interface GitHubCheckRun {
+  id: number;
+  name?: string;
+  status?: string;
+  conclusion?: string;
+  html_url?: string;
+  output?: { summary?: string };
+}
+
+interface GitHubAnnotation {
+  path?: string;
+  start_line?: number;
+  annotation_level?: string;
+  title?: string;
+  message?: string;
+}
 
 interface GraphQlThreads {
   data?: {

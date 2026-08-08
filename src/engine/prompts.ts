@@ -1,4 +1,5 @@
-import type { Language } from "../config.js";
+import type { Language, ReviewConfig } from "../config.js";
+import type { CheckSummary } from "../platform/adapter.js";
 import type { PrSnapshot, ReviewUnit } from "../types.js";
 import type { RuleHit } from "./rules-engine.js";
 
@@ -9,7 +10,11 @@ import type { RuleHit } from "./rules-engine.js";
  * anchor every finding to a changed line (so it can be posted), and cite the
  * tool calls that back it (so confidence grading has something to verify).
  */
-export function SYSTEM_PROMPT(toolSnippets: string[], lang: Language): string {
+export function SYSTEM_PROMPT(
+  toolSnippets: string[],
+  lang: Language,
+  review?: ReviewConfig,
+): string {
   const language =
     lang === "zh"
       ? "Write finding titles and bodies in Simplified Chinese. Keep code identifiers, file paths and error codes in their original form."
@@ -49,7 +54,33 @@ For each finding, list in \`supportingToolCalls\` the ids of the tool calls whos
 Findings backed by verifiable tool output are presented to the user as directly adoptable; findings
 backed only by your reasoning are presented as suggestions. Both are useful — grade yourself honestly.
 
-${language}`;
+${language}${projectSection(review)}`;
+}
+
+/**
+ * What this project asks of a reviewer, spliced into the persona.
+ *
+ * The built-in instructions describe a competent reviewer of code in general.
+ * They cannot know that this is a Go service where unwrapped errors matter, or
+ * that this team has settled its naming arguments and does not want them
+ * reopened. Only the project knows that, and without a way to say it the
+ * reviewer keeps making the same off-target comments.
+ */
+function projectSection(review?: ReviewConfig): string {
+  if (!review) return "";
+  const parts: string[] = [];
+
+  if (review.focus?.trim()) {
+    parts.push(`## What this project cares about\n\n${review.focus.trim()}`);
+  }
+  if (review.ignore.length > 0) {
+    parts.push(
+      `## Settled here — do not raise\n\n` +
+        review.ignore.map((topic) => `- ${topic}`).join("\n") +
+        `\n\nThese have been decided. Raising them again wastes the reader's attention.`,
+    );
+  }
+  return parts.length > 0 ? `\n\n${parts.join("\n\n")}` : "";
 }
 
 /** The per-unit user message: the diff, plus whatever the rules pass already found. */
@@ -58,6 +89,7 @@ export function buildUnitPrompt(
   ruleHits: RuleHit[],
   snapshot: PrSnapshot,
   lang: Language,
+  checks?: CheckSummary,
 ): string {
   const parts: string[] = [];
 
@@ -80,6 +112,28 @@ export function buildUnitPrompt(
   );
 
   parts.push(`## Diff\n\n\`\`\`diff\n${unit.patch}\n\`\`\``);
+
+  // A failing test suite is the highest-signal evidence available about a
+  // change, and it is a fact rather than an inference. Handing the agent the
+  // actual failures lets it connect them to the diff; without this it would be
+  // reasoning about correctness while the answer sat one API call away.
+  if (checks && checks.conclusion !== "success") {
+    const failing = checks.failed.map((run) => `- \`${run.name}\`: ${run.summary ?? "failed"}`).join("\n");
+    const related = checks.annotations
+      .filter((note) => note.path === unit.path)
+      .slice(0, 20)
+      .map((note) => `- \`${note.path}:${note.line}\` ${note.message}`)
+      .join("\n");
+
+    parts.push(
+      `## Continuous integration is currently ${checks.conclusion}\n\n${failing}` +
+        (related
+          ? `\n\n### Reported against this file\n\n${related}\n\n` +
+            `These are machine-produced diagnostics. If one explains a problem in this diff, ` +
+            `say so and cite it — that is far stronger than reasoning from the diff alone.`
+          : `\n\nNo diagnostic points at this file. Do not assume the failure is caused here.`),
+    );
+  }
 
   if (ruleHits.length > 0) {
     parts.push(

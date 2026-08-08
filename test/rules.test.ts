@@ -284,3 +284,68 @@ describe("test-path heuristics", () => {
     expect(hasMatchingTestChange("src/a.ts", [])).toBe(true);
   });
 });
+
+describe("rules — a project can change them without forking", () => {
+  const logic = ["  const token = Math.random();"];
+
+  it("switches off a built-in it disagrees with", () => {
+    const unit = unitWith("src/a.ts", logic);
+    const config = { disabled: ["insecure-random"], severity: {}, custom: [] };
+    expect(runRules(unit, "en", undefined, config).map((h) => h.ruleId)).not.toContain("insecure-random");
+  });
+
+  it("re-grades a built-in", () => {
+    const unit = unitWith("src/a.ts", ["  // TODO: later"]);
+    const config = { disabled: [], severity: { "todo-added": "major" as const }, custom: [] };
+    const hit = runRules(unit, "en", undefined, config).find((h) => h.ruleId === "todo-added");
+    expect(hit?.severity).toBe("major");
+  });
+
+  it("adds a project's own convention", () => {
+    // The check only this team can write: "never import from legacy/".
+    const unit = unitWith("src/a.ts", ['  import { old } from "../legacy/thing";']);
+    const config = {
+      disabled: [],
+      severity: {},
+      custom: [
+        {
+          id: "no-legacy-import",
+          severity: "major" as const,
+          pattern: 'from\\s+["\'][^"\']*legacy/',
+          title: "Imports from legacy/",
+          body: "legacy/ is frozen. Move what you need into src/ first.",
+        },
+      ],
+    };
+    const hits = runRules(unit, "en", undefined, config);
+    const hit = hits.find((h) => h.ruleId === "no-legacy-import");
+    expect(hit?.severity).toBe("major");
+    expect(hit?.title).toBe("Imports from legacy/");
+  });
+
+  it("honours files/requires/unless on a custom rule", () => {
+    const config = {
+      disabled: [],
+      severity: {},
+      custom: [
+        {
+          id: "go-err",
+          severity: "major" as const,
+          files: "\\.go$",
+          pattern: "err\\s*:?=",
+          unless: "if err",
+          title: "Unchecked error",
+          body: "Handle or wrap it.",
+        },
+      ],
+    };
+    const fires = runRules(unitWith("main.go", ["\tv, err := do()"]), "en", undefined, config);
+    expect(fires.map((h) => h.ruleId)).toContain("go-err");
+
+    // Wrong language, and the suppressor both keep it quiet.
+    expect(runRules(unitWith("a.ts", ["  const err = 1;"]), "en", undefined, config).map((h) => h.ruleId))
+      .not.toContain("go-err");
+    expect(runRules(unitWith("main.go", ["\tif err != nil {"]), "en", undefined, config).map((h) => h.ruleId))
+      .not.toContain("go-err");
+  });
+});
