@@ -248,7 +248,6 @@ describe("Dashboard", () => {
         type: "spend",
         ledger: {
           usd: 1.2,
-          cny: 8.7,
           inputTokens: 128_000,
           outputTokens: 9_000,
           cacheReadTokens: 41_000,
@@ -257,7 +256,10 @@ describe("Dashboard", () => {
         },
         fraction: 0.87,
         model: { provider: "openai", id: "gpt-5.4-nano" },
-        notional: false,
+        unit: "CNY",
+        limit: 10,
+        spent: 8.7,
+        projected: 12.4,
       });
       assertWithinWidth(dashboard.render(columns), columns);
     }
@@ -273,11 +275,10 @@ describe("TriagePanel", () => {
   function mount(findings: Finding[]) {
     const terminal = new FakeTerminal(120, 30);
     const tui = new TuiAltScreen(terminal);
-    const panel = new TriagePanel(tui, findings, "en", 3.4, 10, {
+    const panel = new TriagePanel(tui, findings, "en", 3.4, 10, "CNY", {
       onPost: async () => {},
       onTrace: () => {},
       onQuit: () => {},
-      onToggleLang: () => {},
     });
     return { panel, terminal };
   }

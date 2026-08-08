@@ -1,11 +1,11 @@
 import type { Language } from "../config.js";
 import { confidenceLabel, severityLabel, skipLabel } from "../i18n/messages.js";
 import type { RunEvent } from "../types.js";
-import { budgetGauge, formatCny, GLYPH, theme } from "./theme.js";
+import { type BudgetUnit, formatBudget } from "../budget/limit.js";
+import { budgetGauge, GLYPH, theme } from "./theme.js";
 
 export interface PlainOptions {
   lang: Language;
-  totalCny: number;
   /** Print streaming model output. Off by default: it is noise in a log. */
   verbose?: boolean;
   write?: (line: string) => void;
@@ -24,6 +24,9 @@ export function createPlainRenderer(options: PlainOptions): (event: RunEvent) =>
 
   let total = 0;
   let index = 0;
+  // The final line should still say what the run cost; only the spend event
+  // knows the unit, so remember the last one.
+  let lastSpend: { spent: number; limit: number; unit: BudgetUnit } | undefined;
 
   return (event: RunEvent) => {
     switch (event.type) {
@@ -81,10 +84,14 @@ export function createPlainRenderer(options: PlainOptions): (event: RunEvent) =>
         break;
 
       case "spend":
+        lastSpend = { spent: event.spent, limit: event.limit, unit: event.unit };
         write(
           theme.dim(
-            `    ${budgetGauge(event.fraction)} ${event.notional ? "≈" : ""}${formatCny(event.ledger.cny)}/${formatCny(options.totalCny)} · ` +
-              `${event.ledger.calls} call(s) · ${theme.model(`${event.model.provider}/${event.model.id}`)}`,
+            `    ${budgetGauge(event.fraction)} ${formatBudget(event.spent, event.unit)}/${formatBudget(event.limit, event.unit)}` +
+              (event.projected !== undefined
+                ? ` · ${theme.dim(`projected ${formatBudget(event.projected, event.unit)}`)}`
+                : "") +
+              ` · ${event.ledger.calls} call(s) · ${theme.model(`${event.model.provider}/${event.model.id}`)}`,
           ),
         );
         break;
@@ -108,8 +115,10 @@ export function createPlainRenderer(options: PlainOptions): (event: RunEvent) =>
         write("");
         write(
           `${theme.strong("Done.")} ${event.findings.length} finding(s) — ` +
-            `${theme.ok(`${adoptable} adoptable`)}, ${theme.warn(`${event.findings.length - adoptable} reference`)} · ` +
-            `${formatCny(event.state.spend.cny)}`,
+            `${theme.ok(`${adoptable} adoptable`)}, ${theme.warn(`${event.findings.length - adoptable} reference`)}` +
+            (lastSpend
+              ? ` · ${formatBudget(lastSpend.spent, lastSpend.unit)}/${formatBudget(lastSpend.limit, lastSpend.unit)}`
+              : ""),
         );
         if (event.reportPath) write(theme.dim(`Report: ${event.reportPath}`));
         break;

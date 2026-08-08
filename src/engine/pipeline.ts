@@ -19,13 +19,6 @@ export interface PipelineDeps {
   redactor: Redactor;
   config: Config;
   emit: RunEventSink;
-  /**
-   * True when the active credential is a subscription rather than a metered API
-   * key. Under a plan the provider bills nothing per call, so every figure the
-   * budget reports is a list-price estimate — useful as a work limiter, but not
-   * money spent, and it must not be presented as such.
-   */
-  notionalSpend?: boolean;
   signal?: AbortSignal;
 }
 
@@ -71,19 +64,8 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
     ledger: store.current.spend,
     stage: store.current.ladderStage,
     squeezed: store.current.squeezed,
-    hardStopped: false, // A resumed run gets a fresh chance; the ledger still applies.
   });
   budget.onEvent((event) => emit({ type: "budget", ...event }));
-
-  if (deps.notionalSpend) {
-    emit({
-      type: "notice",
-      level: "info",
-      text:
-        "Subscription credential in use — calls are covered by your plan. " +
-        "Spend below is a list-price estimate, not money charged; it still caps how much work runs.",
-    });
-  }
 
   emit({
     type: "run_start",
@@ -102,6 +84,8 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
   // --- Review ------------------------------------------------------------
   const findings: Finding[] = store.readFindings();
   const summaries: { unitId: string; summary: string }[] = [];
+  const settled = () =>
+    store.current.units.filter((unit) => unit.status !== "pending" && unit.status !== "in_progress").length;
 
   for (const unit of units) {
     const state = store.unit(unit.id);
@@ -138,6 +122,9 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
       status: unitFindings.status,
       spendUsd: unitFindings.spendUsd,
     });
+    // Re-forecast now that one more file's real cost is known. This is what
+    // moves the ladder — not how much has been spent, but whether the rest fits.
+    budget.reviewProgress(settled(), store.current.units.length);
     persistSpend(store, budget);
 
     emit({
@@ -152,7 +139,10 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
       ledger: budget.spend,
       fraction: budget.fraction,
       model: budget.currentModel(),
-      notional: deps.notionalSpend ?? false,
+      unit: budget.unit,
+      limit: budget.limit,
+      spent: budget.spent,
+      projected: budget.projectedTotal,
     });
   }
 
@@ -261,7 +251,11 @@ function runRulesOnly(
 
 function persistSpend(store: RunStore, budget: BudgetManager): void {
   const snapshot = budget.snapshot();
-  store.updateSpend(snapshot.ledger, snapshot.stage, snapshot.squeezed, snapshot.hardStopped);
+  store.updateSpend(snapshot.ledger, snapshot.stage, snapshot.squeezed, budget.hardStopped, {
+    limit: budget.limit,
+    unit: budget.unit,
+    usdToCny: budget.usdToCnyRate,
+  });
 }
 
 /**
@@ -283,17 +277,17 @@ function warnIfBudgetLooksTight(
 
   const inputTokens = units.reduce((sum, unit) => sum + estimateTokens(unit.patch) + 900, 0);
   const outputTokens = units.length * 700;
-  const estimate = budget.estimateCny(inputTokens, outputTokens, {
+  const estimate = budget.estimate(inputTokens, outputTokens, {
     input: primary.cost.input,
     output: primary.cost.output,
   });
 
-  if (estimate > budget.totalCny * 0.6) {
+  if (estimate > budget.limit * 0.6) {
     emit({
       type: "notice",
       level: "warn",
       text:
-        `Estimated ¥${estimate.toFixed(2)} for ${units.length} unit(s) against a ¥${budget.totalCny.toFixed(2)} budget — ` +
+        `Estimated ${budget.formatted(estimate)} for ${units.length} unit(s) against a ${budget.formatted(budget.limit)} budget — ` +
         `expect an early downgrade. Raise it with --budget if you want the primary model throughout.`,
     });
   }

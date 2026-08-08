@@ -22,6 +22,7 @@ import {
 } from "./config.js";
 import { authStatus, terminalInteraction } from "./auth/login.js";
 import { FileCredentialStore } from "./auth/credential-store.js";
+import { parseBudgetLimit, serializeBudgetLimit } from "./budget/limit.js";
 import { parseTarget } from "./platform/adapter.js";
 import { createModelRegistry, executeRun, KNOWN_PROVIDERS, providerForLogin } from "./run.js";
 import { Tracer } from "./trace/tracer.js";
@@ -49,7 +50,7 @@ ${theme.strong("Setup")}
   code-review logout <provider>       forget a stored credential
 
 ${theme.strong("Options")}
-  --budget <cny>        total budget for this review          (default ${DEFAULT_CONFIG.budget.totalCny})
+  --budget <amount>     e.g. 10, ¥10, $1.50, 800k tokens      (default ${serializeBudgetLimit(DEFAULT_CONFIG.budget.limit)})
   --model <ref>         primary model, e.g. openai/gpt-5.4
   --lang <zh|en>        language for findings and the report  (default ${DEFAULT_CONFIG.lang})
   --post                post findings back to the pull request
@@ -121,17 +122,16 @@ async function main(argv: string[]): Promise<number> {
 function buildConfig(values: Record<string, unknown>): Config {
   const flags: ConfigOverrides = {};
   if (typeof values.budget === "string") {
-    const totalCny = Number(values.budget);
-    if (!Number.isFinite(totalCny) || totalCny <= 0) throw new Error(`--budget must be a positive number`);
-    flags.budget = { totalCny };
+    // A bare number takes the configured default unit, so `--budget 10` still
+    // means something — and `code-review config` always states which.
+    flags.budget = { limit: parseBudgetLimit(values.budget) };
   }
   if (typeof values.model === "string") {
     const primary = parseModelRef(values.model);
-    // A hand-picked primary model replaces the whole ladder: silently
-    // downgrading to a different family than the user asked for would be worse
-    // than running out of budget.
+    // A hand-picked model collapses the ladder: silently downgrading to a
+    // different family than the user asked for would be worse than overrunning.
     flags.models = { primary };
-    flags.budget = { ...flags.budget, ladder: [{ atFraction: 0, model: primary }] };
+    flags.budget = { ...(flags.budget ?? {}), models: [primary] };
   }
   if (values.lang === "zh" || values.lang === "en") flags.lang = values.lang;
   if (values.fresh === true) flags.fresh = true;
@@ -167,7 +167,6 @@ async function commandReview(
 
     const render = createPlainRenderer({
       lang: config.lang,
-      totalCny: config.budget.totalCny,
       verbose: values.verbose === true,
     });
     const outcome = await executeRun({
@@ -281,16 +280,15 @@ function commandConfig(config: Config): number {
 
   w("");
   w(theme.strong("Budget"));
-  w(`  total           ${theme.accent(`¥${config.budget.totalCny}`)} ${theme.dim(`@ ${config.budget.usdToCny} CNY/USD`)}`);
-  w(`  squeeze at      ${theme.dim(`${Math.round(config.budget.squeezeAtFraction * 100)}% — smaller file windows`)}`);
-  w(`  hard stop at    ${theme.dim(`${Math.round(config.budget.hardStopAtFraction * 100)}% — rules-only for the rest`)}`);
+  w(`  limit           ${theme.accent(serializeBudgetLimit(config.budget.limit))}` +
+    (config.budget.limit.unit === "CNY" ? theme.dim(`  @ ${config.budget.usdToCny} CNY/USD`) : ""));
 
   w("");
-  w(theme.strong("Model ladder") + theme.dim("  (switches as the budget is consumed)"));
-  for (const step of config.budget.ladder) {
-    const at = step.atFraction === 0 ? "start" : `${Math.round(step.atFraction * 100)}%`;
-    w(`  ${theme.dim(at.padStart(6))}  ${theme.model(formatModelRef(step.model))}`);
-  }
+  w(theme.strong("Models") + theme.dim("  (priority order; steps down when projected to overrun)"));
+  config.budget.models.forEach((model, index) => {
+    w(`  ${theme.dim(String(index + 1))}. ${theme.model(formatModelRef(model))}`);
+  });
+  w(theme.dim("  then: trim context · then: stop and finish with the free rule checks"));
 
   w("");
   w(theme.strong("Other"));
@@ -314,11 +312,9 @@ function commandInit(config: Config): number {
   }
   const starter = {
     budget: {
-      totalCny: config.budget.totalCny,
+      limit: serializeBudgetLimit(config.budget.limit),
       usdToCny: config.budget.usdToCny,
-      ladder: config.budget.ladder,
-      squeezeAtFraction: config.budget.squeezeAtFraction,
-      hardStopAtFraction: config.budget.hardStopAtFraction,
+      models: config.budget.models.map(formatModelRef),
     },
     models: config.models,
     tools: { ts_syntax_check: true },
@@ -346,7 +342,7 @@ function commandRuns(config: Config): number {
       `${theme.accent(run.runId)}  ${status.padEnd(18)} ` +
         `${String(run.done).padStart(3)}/${String(run.units).padEnd(3)} units  ` +
         `${String(run.findings).padStart(3)} findings  ` +
-        `¥${run.spendCny.toFixed(2).padStart(6)}  ` +
+        `${run.spendUsd.toFixed(4).padStart(8)} USD  ` +
         `${theme.dim(run.updatedAt.slice(0, 19).replace("T", " "))}  ${run.prUrl}\n`,
     );
   }

@@ -11,10 +11,10 @@ import type {
   SpendLedger,
   UnitStatus,
 } from "../types.js";
+import { formatBudget, type BudgetUnit } from "../budget/limit.js";
 import {
   budgetGauge,
   confidenceGlyph,
-  formatCny,
   formatDuration,
   formatTokens,
   GLYPH,
@@ -46,7 +46,10 @@ export class Dashboard implements Component {
   private model?: ModelRef;
   private spend?: SpendLedger;
   private fraction = 0;
-  private notional = false;
+  private unit: BudgetUnit = "CNY";
+  private limit = 0;
+  private spent = 0;
+  private projected?: number;
   private resumed = false;
   private readonly findings: Finding[] = [];
   private readonly activity: string[] = [];
@@ -61,8 +64,13 @@ export class Dashboard implements Component {
   constructor(
     private readonly tui: TUI,
     private readonly lang: Language,
-    private readonly totalCny: number,
-  ) {}
+    /** Shown before the first spend event arrives. */
+    private readonly totalLimit: number,
+    private readonly totalUnit: BudgetUnit = "CNY",
+  ) {
+    this.unit = totalUnit;
+    this.limit = totalLimit;
+  }
 
   /** Drives the spinner and the elapsed clock; stopped when the run ends. */
   tick(): void {
@@ -129,7 +137,10 @@ export class Dashboard implements Component {
         this.spend = event.ledger;
         this.fraction = event.fraction;
         this.model = event.model;
-        this.notional = event.notional;
+        this.unit = event.unit;
+        this.limit = event.limit;
+        this.spent = event.spent;
+        this.projected = event.projected;
         break;
 
       case "budget":
@@ -193,12 +204,17 @@ export class Dashboard implements Component {
       : "";
 
     const gauge = this.spend
-      ? `${budgetGauge(this.fraction)} ${theme.strong(`${this.notional ? "≈" : ""}${formatCny(this.spend.cny)}`)}${theme.dim(`/${formatCny(this.totalCny)}`)}` +
+      ? `${budgetGauge(this.fraction)} ${theme.strong(formatBudget(this.spent, this.unit))}${theme.dim(`/${formatBudget(this.limit, this.unit)}`)}` +
+        // The forecast is what actually drives the ladder, so it earns a place
+        // next to the figure it will act on.
+        (this.projected !== undefined
+          ? theme.dim(` · 预计 ${formatBudget(this.projected, this.unit)}`.replace("预计", "→"))
+          : "") +
         theme.dim(
           ` · ↑${formatTokens(this.spend.inputTokens)} ↓${formatTokens(this.spend.outputTokens)}` +
             (this.spend.cacheReadTokens > 0 ? ` ⛁${formatTokens(this.spend.cacheReadTokens)}` : ""),
         )
-      : `${budgetGauge(0)} ${theme.dim(`${formatCny(0)}/${formatCny(this.totalCny)}`)}`;
+      : `${budgetGauge(0)} ${theme.dim(`${formatBudget(0, this.totalUnit)}/${formatBudget(this.totalLimit, this.totalUnit)}`)}`;
 
     const modelBadge = this.model ? theme.model(`${this.model.provider}/${this.model.id}`) : "";
 

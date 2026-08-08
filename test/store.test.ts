@@ -94,7 +94,6 @@ describe("RunStore — resume", () => {
     const first = open().store;
     const ledger = emptyLedger();
     ledger.usd = 0.5;
-    ledger.cny = 3.6;
     first.updateSpend(ledger, 1, true, false);
 
     const { store } = open();
@@ -198,5 +197,18 @@ describe("run listing", () => {
     const { store } = open();
     expect(findRunDir(runDir, store.runId.slice(0, 6))).toBe(join(runDir, store.runId));
     expect(findRunDir(runDir, "zzzzzz")).toBeNull();
+  });
+});
+
+describe("RunStore — the budget a run was given", () => {
+  it("records it, so a later view never reports a limit this run never had", () => {
+    const { store } = open();
+    const ledger = emptyLedger();
+    ledger.usd = 0.5;
+    store.updateSpend(ledger, 0, false, false, { limit: 6, unit: "CNY", usdToCny: 7.25 });
+
+    const reopened = open().store;
+    expect(reopened.current.budget).toEqual({ limit: 6, unit: "CNY", usdToCny: 7.25 });
+    expect(reopened.current.spend.usd).toBe(0.5);
   });
 });

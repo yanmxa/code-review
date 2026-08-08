@@ -1,3 +1,4 @@
+import { type BudgetUnit, formatBudget, formatTokenCount } from "../budget/limit.js";
 import type { Language } from "../config.js";
 import { confidenceLabel, severityLabel, skipLabel, t } from "../i18n/messages.js";
 import type {
@@ -14,11 +15,12 @@ export interface ReportInput {
   findings: Finding[];
   state: RunState;
   lang: Language;
-  budgetTotalCny: number;
+  /** The budget's unit, so the report never assumes a currency. */
+  unit: BudgetUnit;
+  limit: number;
+  spent: number;
   redactionStats: Record<string, number>;
   budgetEvents: { kind: string; detail: string }[];
-  /** Spend figures are list-price estimates, not money charged (subscription auth). */
-  notionalSpend?: boolean;
   skipped: { path: string; reason: Parameters<typeof skipLabel>[0] }[];
 }
 
@@ -78,15 +80,7 @@ function renderMetaTable(input: ReportInput): string {
     [lang === "zh" ? "分支" : "Branch", `\`${snapshot.meta.sourceBranch}\` → \`${snapshot.meta.targetBranch}\``],
     ["Head", `\`${state.headSha.slice(0, 10)}\``],
     [t("filesReviewed", lang), `${state.units.filter((unit) => unit.status === "done").length} / ${state.units.length}`],
-    [
-      t("spendHeading", lang),
-      formatSpend(state.spend, input.budgetTotalCny) +
-        (input.notionalSpend
-          ? lang === "zh"
-            ? "  \n_按 API 标价折算；实际调用由订阅覆盖，未产生按量计费_"
-            : "  \n_list-price estimate; the calls were covered by a subscription_"
-          : ""),
-    ],
+    [t("spendHeading", lang), formatSpend(input)],
     [t("modelsUsed", lang), Object.keys(state.spend.byModel).map((id) => `\`${id}\``).join(", ") || "—"],
     ["Run", `\`${state.runId}\``],
   ];
@@ -253,6 +247,7 @@ export function renderPostSummary(
   const { lang } = input;
   const adoptable = input.findings.filter((f) => f.confidence === "adoptable").length;
   const reference = input.findings.length - adoptable;
+  const spend = formatSpend(input);
 
   const lines =
     lang === "zh"
@@ -261,7 +256,7 @@ export function renderPostSummary(
           renderSummary(input, adoptable, reference),
           `本次回评 ${posting.inline} 条行内评论` +
             (posting.skippedAsDuplicate > 0 ? `，另有 ${posting.skippedAsDuplicate} 条此前已评论过，未重复发布。` : "。"),
-          `花费 ${formatSpend(input.state.spend, input.budgetTotalCny)}。`,
+          `花费 ${spend}。`,
         ]
       : [
           `## 🔍 code-review`,
@@ -270,7 +265,7 @@ export function renderPostSummary(
             (posting.skippedAsDuplicate > 0
               ? `; ${posting.skippedAsDuplicate} were already posted on an earlier run and were not repeated.`
               : "."),
-          `Spend: ${formatSpend(input.state.spend, input.budgetTotalCny)}.`,
+          `Spend: ${spend}.`,
         ];
 
   if (input.state.hardStopped) lines.push(`> ${t("partialWarning", lang)}`);
@@ -278,8 +273,15 @@ export function renderPostSummary(
   return lines.join("\n\n");
 }
 
-export function formatSpend(spend: SpendLedger, totalCny: number): string {
-  return `¥${spend.cny.toFixed(2)} / ¥${totalCny.toFixed(2)} ($${spend.usd.toFixed(4)})`;
+export function formatSpend(input: Pick<ReportInput, "spent" | "limit" | "unit" | "state">): string {
+  const core = `${formatBudget(input.spent, input.unit)} / ${formatBudget(input.limit, input.unit)}`;
+  // Tokens are what a subscription actually consumes; dollars are what a key
+  // is billed. Show the other one in parentheses so neither reader has to convert.
+  const aside =
+    input.unit === "tokens"
+      ? `$${input.state.spend.usd.toFixed(4)} at list price`
+      : `${formatTokenCount(input.state.spend.inputTokens + input.state.spend.outputTokens)} tokens`;
+  return `${core} (${aside})`;
 }
 
 function tierGlyph(confidence: Confidence): string {

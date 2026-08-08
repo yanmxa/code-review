@@ -50,7 +50,9 @@ async function harness(findings: Finding[]) {
     findings,
     state: store.current,
     lang: "en",
-    budgetTotalCny: 10,
+    unit: "CNY",
+    limit: 10,
+    spent: 0,
     redactionStats: {},
     budgetEvents: [],
     skipped: [],
@@ -247,18 +249,27 @@ describe("snapshot safety", () => {
   });
 });
 
-describe("subscription spend labelling", () => {
-  it("marks the spend figure as an estimate when a subscription paid for the calls", async () => {
-    // Under a plan the provider bills nothing per call, so the ledger holds a
-    // list-price estimate. Presenting it as money charged would be a lie.
+describe("report spend, in the budget's own unit", () => {
+  it("reports a money budget in money, with the token count alongside", async () => {
     const { report } = await harness([]);
-    report.notionalSpend = true;
+    report.spent = 3.4;
+    report.state.spend.inputTokens = 120_000;
+    report.state.spend.outputTokens = 8_000;
     const markdown = renderReport(report);
-    expect(markdown).toContain("list-price estimate");
+    expect(markdown).toContain("¥3.40 / ¥10.00");
+    expect(markdown).toContain("128k tokens");
   });
 
-  it("says nothing extra when an API key is paying per token", async () => {
+  it("reports a token budget in tokens, with list price alongside", async () => {
+    // A subscription pays nothing per call, so tokens are the only quantity
+    // that genuinely moves; the dollar figure is explicitly labelled as list price.
     const { report } = await harness([]);
-    expect(renderReport(report)).not.toContain("list-price estimate");
+    report.unit = "tokens";
+    report.limit = 800_000;
+    report.spent = 128_000;
+    report.state.spend.usd = 0.42;
+    const markdown = renderReport(report);
+    expect(markdown).toContain("128k tokens / 800k tokens");
+    expect(markdown).toContain("at list price");
   });
 });

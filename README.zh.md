@@ -37,11 +37,11 @@ code-review https://github.com/yanmxa/code-review/pull/1 --budget 6
 ```
 ⬢ yanmxa/code-review #1 demo: add cache eviction, session lookup, and retry helper
 demo/planted-defects → main · 4 files                                                 openai/gpt-5.4
-▰▱▱▱▱▱▱▱▱▱ ¥0.35/¥6.00 · ↑8.9k ↓1.7k ⛁4.6k                                                          
+▱▱▱▱▱▱▱▱▱▱ ¥0.25/¥6.00 · → ¥0.29 · ↑4.1k ↓1.5k ⛁10.8k                                               
 
 ╭─ 文件 ─────────────────────────── 2/4 ─╮╭─ 进行中 ───────────────────────────────────────────────╮
 │✓ demo/src/cache.ts                  2  ││▸ demo/src/retry.ts                                     │
-│✓ demo/src/config.ts                 2  ││  → get_file demo/src/retry.ts                          │
+│✓ demo/src/config.ts                 1  ││  → get_file demo/src/retry.ts                          │
 │⠋ demo/src/retry.ts                     ││    demo/src/retry.ts (11 lines)                        │
 │◌ demo/src/session.ts                   ││  → search_diff withRetry\(                             │
 │                                        ││    No changed line matches /withRetry\(/.              │
@@ -62,30 +62,30 @@ demo/planted-defects → main · 4 files                                        
 跑完进入分诊：按置信度分两组，可采纳的默认已勾选，`p` 一键回评。右侧显示这条意见**凭什么**被判成这一档。
 
 ```
-⬢ 评审结果 · 9 total  ● 5  ○ 4                                                ▰▱▱▱▱▱▱▱▱▱ ¥0.35/¥6.00
+⬢ 评审结果 · 8 total  ● 5  ○ 3                                                ▱▱▱▱▱▱▱▱▱▱ ¥0.25/¥6.00
 
-╭─ 发现 ─────────────────────────── 5/9 ─╮╭─ 详情 ─────────────────────────────────────────────────╮
-│● 可直接采纳 (5)                        ││● 提交中包含疑似密钥                                    │
-│▌[x] ● config.ts:4 提交中包含疑似密钥   ││F-001 · 阻断 · 可直接采纳                               │
-│ [x] ● session.ts:14 SQL 语句拼接变量   ││demo/src/config.ts:4                                    │
-│ [x] ● session.ts:8 用非密码学随机...   ││                                                        │
-│ [x] ● cache.ts:15 新增了 console 日志  ││这一行被密钥扫描器判定为                                │
-│ [x] ● session.ts:4 使用了宽松相等比较  ││`aws-access-key`（内容已在传给模型前脱敏）。请从代码中  │
-│                                        ││移除，改用环境变量或密钥管理服务，并**轮换该凭据**——它  │
-│○ 仅供参考 (4)                          ││已经进入了 git 历史。                                   │
-│ [ ] ○ cache.ts:11 更新已存在的 key...  ││                                                        │
-│ [ ] ○ config.ts:4 配置中硬编码了云...  ││证据                                                    │
-│ [ ] ○ retry.ts:3 重试次数循环存在 ...  ││  ● 规则 secret-in-diff 命中 demo/src/config.ts:4 —     │
-│ [ ] ○ session.ts:15 吞掉数据库异常...  ││    awsAccessKeyId: "[REDACTED:aws-access-key:1a5d]",   │
+╭─ 发现 ─────────────────────────── 5/8 ─╮╭─ 详情 ─────────────────────────────────────────────────╮
+│● 可直接采纳 (5)                        ││● Credential committed in this change                   │
+│▌[x] ● config.ts:4 Credential commi...  ││F-001 · 阻断 · 可直接采纳                               │
+│ [x] ● session.ts:14 SQL built by s...  ││demo/src/config.ts:4                                    │
+│ [x] ● session.ts:8 Non-cryptograph...  ││                                                        │
+│ [x] ● cache.ts:15 New `console` lo...  ││The secret scanner classified this line as              │
+│ [x] ● session.ts:4 Loose equality ...  ││`aws-access-key` (the value was masked before any       │
+│                                        ││model saw it). Remove it from the code, move it to an   │
+│○ 仅供参考 (3)                          ││environment variable or secret manager, and **rotate    │
+│ [ ] ○ cache.ts:11 Eviction runs ev...  ││the credential** — it is already in git history.        │
+│ [ ] ○ retry.ts:3 Retry loop perfor...  ││                                                        │
+│ [ ] ○ session.ts:15 Database failu...  ││证据                                                    │
+│                                        ││  ● 规则 secret-in-diff 命中 demo/src/config.ts:4 —     │
+│                                        ││    awsAccessKeyId: "[REDACTED:aws-access-key:1a5d]",   │
 │                                        ││                                                        │
-│                                        ││→ traces/demo_src_config.ts.jsonl   t open trace        │
-│                                        ││                                                        │
+│                                        ││→ traces/demo_src_config.ts.jsonl   t 查看 trace        │
 │                                        ││                                                        │
 │                                        ││                                                        │
 │                                        ││                                                        │
 ╰────────────────────────────────────────╯╰────────────────────────────────────────────────────────╯
 
-                            ↑↓ 移动 · space 选中 · a 全选可采纳 · t trace · p 回评 · l 语言 · q 退出
+                                     ↑↓ 移动 · space 选中 · a 全选可采纳 · t trace · p 回评 · q 退出
 ```
 
 <details>
@@ -93,22 +93,22 @@ demo/planted-defects → main · 4 files                                        
 
 ```
 ╭─ F-002 · traces/demo_src_session.ts.jsonl ───────────────────────────────────────────────────────╮
-│ 02:29:50 ✦ rule loose-equality demo/src/session.ts:4                                             │
-│ 02:29:50 ✦ rule insecure-random demo/src/session.ts:8                                            │
-│▌02:29:50 ✦ rule sql-string-concat demo/src/session.ts:14                                         │
-│ 02:29:50 ▸ unit demo/src/session.ts openai/gpt-5.4                                               │
-│ 02:29:50 ↑ llm 1 msg · 4 tools openai/gpt-5.4                                                    │
-│ 02:29:53 ↓ llm toolUse ↑1.8k ↓155 $0.0069                                                        │
-│ 02:29:53 → search_diff {"pattern":"\\bloadSession\\s*\\(","maxResu...                            │
-│ 02:29:53 → get_file {"path":"demo/src/session.ts","startLine":1}                                 │
-│ 02:29:53 → get_file {"path":"demo/src/db.ts","startLine":1}                                      │
-│ 02:29:53   · 1 matching changed line(s):                                                         │
-│ 02:29:54   · File not found at head commit: demo/src/db.ts                                       │
-│ 02:29:54   · demo/src/session.ts                                                                 │
-│ 02:29:54 ↑ llm 5 msg · 4 tools openai/gpt-5.4                                                    │
-│ 02:29:56 ↓ llm toolUse ↑708 ↓88 $0.0035                                                          │
-│ 02:29:56 → search_diff {"pattern":"createConnection","maxResults":20}                            │
-│ 02:29:56 → search_diff {"pattern":"class .*Connection|function cre...                            │
+│ 03:46:18 ✦ rule loose-equality demo/src/session.ts:4                                             │
+│ 03:46:18 ✦ rule insecure-random demo/src/session.ts:8                                            │
+│▌03:46:18 ✦ rule sql-string-concat demo/src/session.ts:14                                         │
+│ 03:46:18 ▸ unit demo/src/session.ts openai/gpt-5.4                                               │
+│ 03:46:18 ↑ llm 1 msg · 4 tools openai/gpt-5.4                                                    │
+│ 03:46:20 ↓ llm toolUse ↑269 ↓128 $0.0030                                                         │
+│ 03:46:20 → search_diff {"pattern":"\\bloadSession\\s*\\(","maxResu...                            │
+│ 03:46:20   · 1 matching changed line(s):                                                         │
+│ 03:46:20 ↑ llm 3 msg · 4 tools openai/gpt-5.4                                                    │
+│ 03:46:22 ↓ llm toolUse ↑433 ↓42 $0.0021                                                          │
+│ 03:46:22 → get_file {"path":"demo/src/db.ts","startLine":1}                                      │
+│ 03:46:23   · File not found at head commit: demo/src/db.ts                                       │
+│ 03:46:23 ↑ llm 5 msg · 4 tools openai/gpt-5.4                                                    │
+│ 03:46:25 ↓ llm toolUse ↑497 ↓41 $0.0022                                                          │
+│ 03:46:25 → search_diff {"pattern":"\\bcreateConnection\\b","maxRes...                            │
+│ 03:46:25   · 2 matching changed line(s):                                                         │
 │                                                                   ↑↓ 移动 · enter 展开 · esc 关闭│
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
@@ -133,7 +133,7 @@ code-review $PR --budget 6 &
 sleep 30 && pkill -f "code-review $PR"
 code-review $PR --budget 6            # 只重跑被打断的那个文件，其余不重复计费
 
-# 预算降级：花到 50% 自动切到更便宜的模型
+# 预算降级：预计会超支时自动切到更便宜的模型
 code-review $PR --budget 0.30 --fresh --no-tui | grep downgrade
 
 # 预算硬停：第一个文件就超预算，剩下的仍跑完免费的规则检查
@@ -147,7 +147,7 @@ grep -rho "\[REDACTED:[a-z-]*:" ~/.code-review/runs/ | sort -u
 code-review $PR --post && code-review $PR --post
 ```
 
-实测结果：续跑 ¥0.24 → ¥0.35（三个已完成的文件没有重复计费）；降级在 58% 触发，最终 ¥0.21 收在 ¥0.30 内；硬停时 4 个文件只有 1 个过了 LLM，报告里仍有 5 条可采纳意见。
+实测结果：续跑时只重跑被打断的那个文件，已完成的不重复计费；`--budget 0.30` 时跑完第 1 个文件就预测到会花 ¥0.37 而降级，之后预测逐步收敛，最终 ¥0.16 落在预算内；硬停时 4 个文件只有 1 个过了 LLM，报告里仍有 5 条可采纳意见。
 
 ---
 
@@ -158,7 +158,7 @@ code-review $PR --post && code-review $PR --post
 | 要求 | 怎么做的 | 代码 | 测试 |
 | --- | --- | --- | --- |
 | **可恢复** | Run id = `sha256(平台:仓库:PR号:head SHA)`，**重跑同一条命令就是续跑**。findings 先落盘、再写确认它的 state —— 崩在中间最多重跑一个文件，永不丢已付费的结果。`state.json` 临时文件 + rename 原子写入。 | `checkpoint/store.ts` | `store.test.ts`（16） |
-| **token 预算** | 闸门装在 **stream function** 里，每一次 LLM 调用都要过它（包括 agent 自己多打的那轮）。50% 降 mini、75% 收缩上下文、85% 降 nano、100% 硬停。**硬停后仍跑零成本规则**，部分结果依然有价值。 | `budget/budget.ts`<br>`engine/review-agent.ts` | `budget.test.ts`（17） |
+| **token 预算** | 闸门装在 **stream function** 里，每一次 LLM 调用都要过它（包括 agent 自己多打的那轮）。降级看的是**预测**（`已花 ÷ 已完成比例`）而不是已花多少 —— 花掉一半预算跑完一半文件是正好在轨，不该触发任何动作。预计超支 → 降一档；降到底还超 → 收缩上下文；真的花完 → 停。**硬停后仍跑零成本规则**，部分结果依然有价值。 | `budget/budget.ts`<br>`engine/review-agent.ts` | `budget.test.ts`（33） |
 | **可观测** | 每个评审单元一个 JSONL：完整 system prompt、每条消息、模型原始回复、每次工具调用与结果、规则命中、预算事件。报告里是链接，TUI 里按 `t`，命令行 `code-review trace`。 | `trace/tracer.ts` | `pipeline.test.ts` |
 | **置信度分级** | **只有机器可复现的证据能评为"可直接采纳"**：确定性规则命中，或静态检查诊断。模型推理无论多笃定都只是"仅供参考"。模型必须引用工具调用 id，编造的 id 被静默丢弃而非奖励。 | `engine/grade.ts`<br>`engine/rules-engine.ts` | `rules.test.ts`（23） |
 | **安全** | 脱敏**编译器强制**：出网/落盘的字符串都是 branded 类型 `Redacted<string>`，忘了脱敏是编译错误而非泄漏。规则源自 gitleaks + 熵值扫描。不 clone、无 shell 工具，全程只有 REST。唯一子进程是 `gh auth token`。 | `security/redactor.ts` | `redactor.test.ts`（27） |
@@ -226,7 +226,7 @@ code-review logout <provider>       # 删除已存的凭据
 
 | 选项 | 说明 |
 | --- | --- |
-| `--budget <cny>` | 本次评审的总预算，人民币（默认 10） |
+| `--budget <amount>` | `10`、`¥10`、`$1.50`、`800k tokens`。裸数字用配置里的单位（默认 ¥10） |
 | `--model <ref>` | 指定主模型，如 `openai/gpt-5.4`。指定后不再自动降级 |
 | `--lang <zh\|en>` | 评审意见与报告的语言（默认 zh） |
 | `--post` | 把结果作为行内评论回评到 PR |
@@ -242,18 +242,29 @@ code-review logout <provider>       # 删除已存的凭据
 ```jsonc
 {
   "budget": {
-    "totalCny": 10,
-    "usdToCny": 7.25,
-    "ladder": [                                    // 按已花费比例触发
-      { "atFraction": 0,    "model": { "provider": "openai", "id": "gpt-5.4" } },
-      { "atFraction": 0.5,  "model": { "provider": "openai", "id": "gpt-5.4-mini" } },
-      { "atFraction": 0.85, "model": { "provider": "openai", "id": "gpt-5.4-nano" } }
+    "limit": "¥10",            // 也可以 "$1.50" 或 "800k tokens"
+    "usdToCny": 7.25,          // 仅当 limit 用人民币时需要
+    "models": [                // 优先级：预计会超支时逐档下降
+      "openai/gpt-5.4",
+      "openai/gpt-5.4-mini",
+      "openai/gpt-5.4-nano"
     ]
   },
   "tools": { "ts_syntax_check": true },
   "lang": "zh"
 }
 ```
+
+**降级不看已花了多少，看预计会花多少。** 每跑完一个文件重算一次 `已花 ÷ 已完成比例`：
+
+```
+¥ downgrade — gpt-5.4 → gpt-5.4-mini — projected ¥0.37 against ¥0.30 after 1/4 files
+✓ cache.ts    ¥0.09/¥0.30 · projected ¥0.37
+✓ config.ts   ¥0.11/¥0.30 · projected ¥0.22    ← 换便宜模型后预测自行收敛
+✓ session.ts  ¥0.16/¥0.30 · projected ¥0.16    ← 最终落在预算内
+```
+
+花掉一半预算跑完一半文件是**正好在轨**，不该降级；花掉一半只跑完五分之一才是要出事。所以配置里没有阈值——超了降一档，降到底还超就收缩上下文，真的花完才停。
 
 <details>
 <summary><b>用 ChatGPT 订阅代替 API key</b></summary>
@@ -296,7 +307,7 @@ PR URL → 拉取(REST，不 clone) → 脱敏 → 切分成评审单元
 ## 开发
 
 ```bash
-npm test              # 189 个测试，全部离线，不需要任何 API key
+npm test              # 206 个测试，全部离线，不需要任何 API key
 npm run typecheck
 npm run dev -- <url>  # tsx 直跑，不用先 build
 ```

@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { RunStore } from "../checkpoint/store.js";
 import type { Config, Language } from "../config.js";
 import { dedupe } from "../engine/grade.js";
-import { renderReport, type ReportInput } from "../report/markdown.js";
+import type { ReportInput } from "../report/markdown.js";
 import { postFindings } from "../report/post.js";
 import { Redactor } from "../security/redactor.js";
 import { Tracer } from "../trace/tracer.js";
@@ -36,7 +36,12 @@ export interface DashboardOptions {
  */
 export async function runDashboard(options: DashboardOptions): Promise<RunOutcome> {
   const tui = new TuiAltScreen(new ProcessTerminal());
-  const dashboard = new Dashboard(tui, options.config.lang, options.config.budget.totalCny);
+  const dashboard = new Dashboard(
+    tui,
+    options.config.lang,
+    options.config.budget.limit.amount,
+    options.config.budget.limit.unit,
+  );
 
   tui.addChild(dashboard);
   tui.start();
@@ -78,7 +83,7 @@ export async function runDashboard(options: DashboardOptions): Promise<RunOutcom
     });
   }
 
-  tui.stop();
+  leaveFullScreen(tui);
   printClosing(outcome.reportPath, outcome.findings, options.config);
   return outcome;
 }
@@ -109,7 +114,11 @@ export async function browseRun(runDir: string, config: Config): Promise<void> {
     findings,
     state,
     lang: config.lang,
-    budgetTotalCny: config.budget.totalCny,
+    // The run recorded what it used; reconstructing it from today's config
+    // would report a limit this run never had.
+    unit: state.budget?.unit ?? config.budget.limit.unit,
+    limit: state.budget?.limit ?? config.budget.limit.amount,
+    spent: spentFromLedger(state, config),
     redactionStats: {},
     budgetEvents: [],
     skipped: [],
@@ -118,8 +127,16 @@ export async function browseRun(runDir: string, config: Config): Promise<void> {
   const tui = new TuiAltScreen(new ProcessTerminal());
   tui.start();
   await triageLoop(tui, { findings, state, snapshot, store, report, config });
-  tui.stop();
+  leaveFullScreen(tui);
   printClosing(join(runDir, "report.md"), findings, config);
+}
+
+/** Consumption in the run's own budget unit, read back from the stored ledger. */
+function spentFromLedger(state: RunState, config: Config): number {
+  const unit = state.budget?.unit ?? config.budget.limit.unit;
+  if (unit === "tokens") return state.spend.inputTokens + state.spend.outputTokens;
+  if (unit === "USD") return state.spend.usd;
+  return state.spend.usd * (state.budget?.usdToCny ?? config.budget.usdToCny);
 }
 
 interface TriageContext {
@@ -138,7 +155,7 @@ interface TriageContext {
  * tearing down the terminal exactly once.
  */
 async function triageLoop(tui: TUI, context: TriageContext): Promise<void> {
-  let lang: Language = context.config.lang;
+  const lang: Language = context.config.lang;
 
   await new Promise<void>((resolve) => {
     const mount = () => {
@@ -147,15 +164,11 @@ async function triageLoop(tui: TUI, context: TriageContext): Promise<void> {
         tui,
         context.findings,
         lang,
-        context.state.spend.cny,
-        context.config.budget.totalCny,
+        context.report.spent,
+        context.report.limit,
+        context.report.unit,
         {
           onQuit: () => resolve(),
-          onToggleLang: () => {
-            lang = lang === "zh" ? "en" : "zh";
-            context.report.lang = lang;
-            mount();
-          },
           onTrace: (finding) => showTrace(tui, context, finding, lang),
           onPost: async (selected) => {
             const result = await postFindings({
@@ -183,10 +196,9 @@ async function triageLoop(tui: TUI, context: TriageContext): Promise<void> {
     mount();
   });
 
-  // Refresh the report so the file on disk matches what the user just read
-  // (the language toggle is the case that matters).
-  context.report.lang = lang;
-  context.store.writeReport(renderReport(context.report));
+  // Deliberately does not rewrite report.md. The run that produced it had the
+  // real ledger; regenerating from what triage can reconstruct could only lose
+  // information — which is exactly how a report once claimed ¥0.00 spent.
 }
 
 function showTrace(tui: TUI, context: TriageContext, finding: Finding, lang: Language): void {
@@ -208,7 +220,19 @@ function showTrace(tui: TUI, context: TriageContext, finding: Finding, lang: Lan
 function stop(tui: TUI, spinner: NodeJS.Timeout, removeInput: () => void): void {
   clearInterval(spinner);
   removeInput();
-  tui.stop();
+  leaveFullScreen(tui);
+}
+
+/**
+ * Leave the alternate screen without dumping the last frame into scrollback.
+ *
+ * pi-tui's default is to re-print the final render after exiting, which suits a
+ * chat transcript you want to keep reading. A findings browser is not a
+ * transcript: once the user quits, a 24-line box of panels is noise on top of
+ * the closing summary that actually tells them where the report is.
+ */
+function leaveFullScreen(tui: TUI): void {
+  tui.stop({ preserveScreen: true });
 }
 
 function printClosing(reportPath: string, findings: Finding[], config: Config): void {

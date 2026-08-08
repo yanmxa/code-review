@@ -1,3 +1,5 @@
+import type { BudgetLimit, BudgetUnit } from "./budget/limit.js";
+
 /**
  * Core domain types shared across the pipeline.
  *
@@ -177,26 +179,24 @@ export interface ModelRef {
   id: string;
 }
 
-export interface LadderStep {
-  /** Fraction of total budget spent at which this model takes over. */
-  atFraction: number;
-  model: ModelRef;
-}
+export type { BudgetLimit, BudgetUnit } from "./budget/limit.js";
 
 export interface BudgetConfig {
-  /** Total budget in CNY for the whole run. */
-  totalCny: number;
+  /** What the run may consume, and in which unit. */
+  limit: BudgetLimit;
+  /** Only consulted when the limit is denominated in CNY. */
   usdToCny: number;
-  ladder: LadderStep[];
-  /** Fraction at which context is squeezed (smaller file windows, no cross-file pass). */
-  squeezeAtFraction: number;
-  /** Fraction at which the run stops and reports partial results. */
-  hardStopAtFraction: number;
+  /**
+   * Models in priority order. No thresholds: the run steps down one rung
+   * whenever it is projected to overrun, so the numbers that used to live here
+   * were describing the control loop rather than the user's preference.
+   */
+  models: ModelRef[];
 }
 
 export interface SpendLedger {
+  /** Always tracked, whatever the limit's unit — providers bill in USD. */
   usd: number;
-  cny: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -259,6 +259,8 @@ export interface RunState {
   startedAt: string;
   updatedAt: string;
   spend: SpendLedger;
+  /** The budget this run was given, so a later report never guesses at it. */
+  budget?: { limit: number; unit: BudgetUnit; usdToCny: number };
   ladderStage: number;
   squeezed: boolean;
   hardStopped: boolean;
@@ -278,7 +280,18 @@ export type RunEvent =
   | { type: "tool_start"; unitId: string; name: string; summary: string }
   | { type: "tool_end"; unitId: string; name: string; summary: string; isError: boolean }
   | { type: "stream_delta"; unitId: string; text: string }
-  | { type: "spend"; ledger: SpendLedger; fraction: number; model: ModelRef; notional: boolean }
+  | {
+      type: "spend";
+      ledger: SpendLedger;
+      fraction: number;
+      model: ModelRef;
+      /** The budget's unit, so renderers never assume a currency. */
+      unit: BudgetUnit;
+      limit: number;
+      spent: number;
+      /** Forecast total once at least one unit has finished. */
+      projected?: number;
+    }
   | { type: "budget"; kind: "downgrade" | "squeeze" | "hard_stop"; detail: string }
   | { type: "finding"; finding: Finding }
   | { type: "notice"; level: "info" | "warn" | "error"; text: string }

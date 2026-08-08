@@ -9,6 +9,7 @@ import { renderReport, type ReportInput } from "./report/markdown.js";
 import { postFindings, type PostSummary } from "./report/post.js";
 import { FileCredentialStore } from "./auth/credential-store.js";
 import { isSubscriptionAuth } from "./auth/login.js";
+import { formatBudget, formatTokenCount } from "./budget/limit.js";
 import { Redactor } from "./security/redactor.js";
 import type { Finding, PrSnapshot, RunEvent, RunEventSink, SkipReason, Target } from "./types.js";
 import { planUnits } from "./engine/units.js";
@@ -48,9 +49,7 @@ export async function executeRun(options: RunOptions): Promise<RunOutcome> {
   const redactor = new Redactor().seedFromEnv().seed(...credentials.secrets());
   const adapter = await createAdapter(target, redactor);
   const models = await createModelRegistry(process.env, credentials);
-  // A subscription bills nothing per call, so anything the budget reports is a
-  // list-price estimate. Detect it once and label every surface accordingly.
-  const notionalSpend = await isSubscriptionAuth(models, config.models.primary.provider);
+  const budgetConfig = await resolveBudgetUnit(models, config, options.emit);
 
   const budgetEvents: { kind: string; detail: string }[] = [];
   const emit: RunEventSink = (event: RunEvent) => {
@@ -62,9 +61,8 @@ export async function executeRun(options: RunOptions): Promise<RunOutcome> {
     adapter,
     models,
     redactor,
-    config,
+    config: { ...config, budget: budgetConfig },
     emit,
-    notionalSpend,
     signal: options.signal,
   });
 
@@ -74,10 +72,11 @@ export async function executeRun(options: RunOptions): Promise<RunOutcome> {
     findings: result.findings,
     state: result.store.current,
     lang: config.lang,
-    budgetTotalCny: config.budget.totalCny,
+    unit: result.budget.unit,
+    limit: result.budget.limit,
+    spent: result.budget.spent,
     redactionStats: redactor.stats(),
     budgetEvents,
-    notionalSpend,
     skipped: [
       ...skipped.map((entry) => ({ path: entry.path, reason: entry.reason })),
       ...result.store.current.units
@@ -117,6 +116,45 @@ export async function executeRun(options: RunOptions): Promise<RunOutcome> {
     posted,
     hardStopped: result.store.current.hardStopped,
   };
+}
+
+/**
+ * Decide what the budget actually counts, given how the run is paid for.
+ *
+ * A subscription bills nothing per call. Keeping a money limit there would mean
+ * pricing every call from a list the user is not being charged against — a
+ * number that looks like spend and is not. So a money limit is converted, once
+ * and out loud, into the token limit it corresponds to, and everything
+ * downstream counts the quantity that genuinely moves.
+ */
+async function resolveBudgetUnit(
+  models: Models,
+  config: Config,
+  emit: RunEventSink,
+): Promise<Config["budget"]> {
+  const budget = config.budget;
+  if (budget.limit.unit === "tokens") return budget;
+  if (!(await isSubscriptionAuth(models, config.models.primary.provider))) return budget;
+
+  const primary = models.getModel(config.models.primary.provider, config.models.primary.id);
+  if (!primary) return budget;
+
+  const usd = budget.limit.unit === "USD" ? budget.limit.amount : budget.limit.amount / budget.usdToCny;
+  // Assume a typical review's 6:1 input:output split when pricing the swap.
+  const blendedPerMillion = primary.cost.input * (6 / 7) + primary.cost.output * (1 / 7);
+  if (!(blendedPerMillion > 0)) return budget;
+  const tokens = Math.round((usd / blendedPerMillion) * 1_000_000);
+
+  emit({
+    type: "notice",
+    level: "info",
+    text:
+      `Subscription credential — calls are covered by your plan, so there is no per-call cost to budget. ` +
+      `${formatBudget(budget.limit.amount, budget.limit.unit)} at ${primary.id} list price is about ` +
+      `${formatTokenCount(tokens)} tokens; budgeting that instead. Set --budget in tokens to be explicit.`,
+  });
+
+  return { ...budget, limit: { amount: tokens, unit: "tokens" } };
 }
 
 export async function createAdapter(target: Target, redactor: Redactor): Promise<PlatformAdapter> {

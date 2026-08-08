@@ -39,11 +39,11 @@ the right, spend and current model always on top.
 ```
 ⬢ yanmxa/code-review #1 demo: add cache eviction, session lookup, and retry helper
 demo/planted-defects → main · 4 files                                                 openai/gpt-5.4
-▰▱▱▱▱▱▱▱▱▱ ¥0.31/¥6.00 · ↑9.1k ↓1.3k ⛁6.1k                                                          
+▱▱▱▱▱▱▱▱▱▱ ¥0.25/¥6.00 · → ¥0.29 · ↑4.1k ↓1.5k ⛁10.8k                                               
 
 ╭─ Files ────────────────────────── 2/4 ─╮╭─ Activity ─────────────────────────────────────────────╮
 │✓ demo/src/cache.ts                  2  ││▸ demo/src/retry.ts                                     │
-│✓ demo/src/config.ts                 2  ││  → get_file demo/src/retry.ts                          │
+│✓ demo/src/config.ts                 1  ││  → get_file demo/src/retry.ts                          │
 │⠋ demo/src/retry.ts                     ││    demo/src/retry.ts (11 lines)                        │
 │◌ demo/src/session.ts                   ││  → search_diff withRetry\(                             │
 │                                        ││    No changed line matches /withRetry\(/.              │
@@ -65,7 +65,7 @@ Then triage: two groups by confidence, adoptable ones pre-selected, `p` posts
 the selection. The right pane shows *why* a finding earned its tier.
 
 ```
-⬢ Review findings · 8 total  ● 5  ○ 3                                         ▰▱▱▱▱▱▱▱▱▱ ¥0.31/¥6.00
+⬢ Review findings · 8 total  ● 5  ○ 3                                         ▱▱▱▱▱▱▱▱▱▱ ¥0.25/¥6.00
 
 ╭─ Findings ─────────────────────── 5/8 ─╮╭─ Detail ───────────────────────────────────────────────╮
 │● ADOPTABLE (5)                         ││● Credential committed in this change                   │
@@ -88,7 +88,7 @@ the selection. The right pane shows *why* a finding earned its tier.
 │                                        ││                                                        │
 ╰────────────────────────────────────────╯╰────────────────────────────────────────────────────────╯
 
-                       ↑↓ move · space toggle · a all adoptable · t trace · p post · l lang · q quit
+                                ↑↓ move · space toggle · a all adoptable · t trace · p post · q quit
 ```
 
 <details>
@@ -96,22 +96,22 @@ the selection. The right pane shows *why* a finding earned its tier.
 
 ```
 ╭─ F-002 · traces/demo_src_session.ts.jsonl ───────────────────────────────────────────────────────╮
-│ 02:28:51 ✦ rule loose-equality demo/src/session.ts:4                                             │
-│ 02:28:51 ✦ rule insecure-random demo/src/session.ts:8                                            │
-│▌02:28:51 ✦ rule sql-string-concat demo/src/session.ts:14                                         │
-│ 02:28:51 ▸ unit demo/src/session.ts openai/gpt-5.4                                               │
-│ 02:28:51 ↑ llm 1 msg · 4 tools openai/gpt-5.4                                                    │
-│ 02:28:54 ↓ llm toolUse ↑1.8k ↓78 $0.0057                                                         │
-│ 02:28:54 → get_file {"path":"demo/src/session.ts","startLine":1}                                 │
-│ 02:28:55   · demo/src/session.ts                                                                 │
-│ 02:28:55 ↑ llm 3 msg · 4 tools openai/gpt-5.4                                                    │
-│ 02:28:57 ↓ llm toolUse ↑552 ↓44 $0.0024                                                          │
-│ 02:28:57 → get_file {"path":"demo/src/db.ts","startLine":1}                                      │
-│ 02:28:57   · File not found at head commit: demo/src/db.ts                                       │
-│ 02:28:57 ↑ llm 5 msg · 4 tools openai/gpt-5.4                                                    │
-│ 02:28:59 ↓ llm toolUse ↑618 ↓44 $0.0026                                                          │
-│ 02:28:59 → search_diff {"pattern":"createConnection\\(|query\\(","...                            │
-│ 02:28:59   · 2 matching changed line(s):                                                         │
+│ 03:46:18 ✦ rule loose-equality demo/src/session.ts:4                                             │
+│ 03:46:18 ✦ rule insecure-random demo/src/session.ts:8                                            │
+│▌03:46:18 ✦ rule sql-string-concat demo/src/session.ts:14                                         │
+│ 03:46:18 ▸ unit demo/src/session.ts openai/gpt-5.4                                               │
+│ 03:46:18 ↑ llm 1 msg · 4 tools openai/gpt-5.4                                                    │
+│ 03:46:20 ↓ llm toolUse ↑269 ↓128 $0.0030                                                         │
+│ 03:46:20 → search_diff {"pattern":"\\bloadSession\\s*\\(","maxResu...                            │
+│ 03:46:20   · 1 matching changed line(s):                                                         │
+│ 03:46:20 ↑ llm 3 msg · 4 tools openai/gpt-5.4                                                    │
+│ 03:46:22 ↓ llm toolUse ↑433 ↓42 $0.0021                                                          │
+│ 03:46:22 → get_file {"path":"demo/src/db.ts","startLine":1}                                      │
+│ 03:46:23   · File not found at head commit: demo/src/db.ts                                       │
+│ 03:46:23 ↑ llm 5 msg · 4 tools openai/gpt-5.4                                                    │
+│ 03:46:25 ↓ llm toolUse ↑497 ↓41 $0.0022                                                          │
+│ 03:46:25 → search_diff {"pattern":"\\bcreateConnection\\b","maxRes...                            │
+│ 03:46:25   · 2 matching changed line(s):                                                         │
 │                                                                ↑↓ move · enter expand · esc close│
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
@@ -139,7 +139,7 @@ code-review $PR --budget 6 &
 sleep 30 && pkill -f "code-review $PR"
 code-review $PR --budget 6            # redoes only the interrupted file, no double billing
 
-# Downgrade: switches to a cheaper model once half the budget is gone
+# Downgrade: switches to a cheaper model when projected to overrun
 code-review $PR --budget 0.30 --fresh --no-tui | grep downgrade
 
 # Hard stop: the first file blows the budget; the rest still run the free rules
@@ -153,10 +153,11 @@ grep -rho "\[REDACTED:[a-z-]*:" ~/.code-review/runs/ | sort -u
 code-review $PR --post && code-review $PR --post
 ```
 
-Measured: resume went ¥0.24 → ¥0.35 (the three finished files were not
-re-billed); the downgrade fired at 58% and the run closed at ¥0.21 inside a
-¥0.30 budget; under the hard stop only 1 of 4 files reached the model, yet the
-report still carried 5 adoptable findings.
+Measured: resume redoes only the interrupted file and never re-bills the
+finished ones; with `--budget 0.30` the first file already forecast ¥0.37 and
+triggered a downgrade, after which the forecast converged and the run closed at
+¥0.16; under the hard stop only 1 of 4 files reached the model, yet the report
+still carried 5 adoptable findings.
 
 ---
 
@@ -165,7 +166,7 @@ report still carried 5 adoptable findings.
 | Requirement | How | Code | Tests |
 | --- | --- | --- | --- |
 | **Resumable** | Run id is `sha256(platform:repo:number:headSha)`, so **re-running the same command resumes**. Findings are written before the state that acknowledges them: a crash costs at most one file and never a paid-for result. `state.json` is written to a temp file and renamed. | `checkpoint/store.ts` | `store.test.ts` (16) |
-| **Token budget** | The gate lives in the **stream function**, so every LLM call passes through it — including turns the agent takes on its own. Mini at 50%, squeeze context at 75%, nano at 85%, hard stop at 100%. After a hard stop the **zero-cost rules still run**, so partial results stay worth reading. | `budget/budget.ts`<br>`engine/review-agent.ts` | `budget.test.ts` (17) |
+| **Token budget** | The gate lives in the **stream function**, so every LLM call passes through it — including turns the agent takes on its own. The ladder steps on the **forecast** (`spent ÷ files done`), not on spend: half the budget on half the files is on track and triggers nothing. Over budget → step down a rung; out of rungs → trim context; actually out of money → stop. After a hard stop the **zero-cost rules still run**, so partial results stay worth reading. | `budget/budget.ts`<br>`engine/review-agent.ts` | `budget.test.ts` (33) |
 | **Observable** | One JSONL per review unit: full system prompt, every message, raw model response, every tool call and result, rule hits, budget events. A link in the report, `t` in the TUI, `code-review trace` on the command line. | `trace/tracer.ts` | `pipeline.test.ts` |
 | **Confidence tiers** | **Only machine-reproducible evidence promotes a finding to "adoptable"**: a deterministic rule hit or a static analysis diagnostic. Model reasoning stays "for reference". Cited tool call ids are resolved against the trace; fabricated ones are dropped, not rewarded. | `engine/grade.ts`<br>`engine/rules-engine.ts` | `rules.test.ts` (23) |
 | **Security** | Redaction is **compiler-enforced**: anything bound for a model or for disk is a branded `Redacted<string>`, so forgetting to redact is a type error, not a leak. gitleaks-derived rules plus an entropy scan. Never clones, registers no shell tool — every access is REST. The only subprocess is `gh auth token`. | `security/redactor.ts` | `redactor.test.ts` (27) |
@@ -241,7 +242,7 @@ code-review logout <provider>       # forget a stored credential
 
 | Option | Meaning |
 | --- | --- |
-| `--budget <cny>` | Total budget for this review, in CNY (default 10) |
+| `--budget <amount>` | `10`, `¥10`, `$1.50`, `800k tokens`. A bare number takes the configured unit (default ¥10) |
 | `--model <ref>` | Primary model, e.g. `openai/gpt-5.4`. Setting it disables the ladder |
 | `--lang <zh\|en>` | Language of findings and report (default zh) |
 | `--post` | Post findings back to the PR as inline comments |
@@ -260,18 +261,33 @@ editable copy; `code-review config` shows the merged result.
 ```jsonc
 {
   "budget": {
-    "totalCny": 10,
-    "usdToCny": 7.25,
-    "ladder": [                                    // triggered by fraction spent
-      { "atFraction": 0,    "model": { "provider": "openai", "id": "gpt-5.4" } },
-      { "atFraction": 0.5,  "model": { "provider": "openai", "id": "gpt-5.4-mini" } },
-      { "atFraction": 0.85, "model": { "provider": "openai", "id": "gpt-5.4-nano" } }
+    "limit": "¥10",            // or "$1.50" or "800k tokens"
+    "usdToCny": 7.25,          // only consulted when the limit is in CNY
+    "models": [                // priority order; steps down when projected to overrun
+      "openai/gpt-5.4",
+      "openai/gpt-5.4-mini",
+      "openai/gpt-5.4-nano"
     ]
   },
   "tools": { "ts_syntax_check": true },
   "lang": "en"
 }
 ```
+
+**The ladder steps on the forecast, not on how much has been spent.** After each
+file it recomputes `spent ÷ fraction of files done`:
+
+```
+¥ downgrade — gpt-5.4 → gpt-5.4-mini — projected ¥0.37 against ¥0.30 after 1/4 files
+✓ cache.ts    ¥0.09/¥0.30 · projected ¥0.37
+✓ config.ts   ¥0.11/¥0.30 · projected ¥0.22    ← the cheaper model pulls it back
+✓ session.ts  ¥0.16/¥0.30 · projected ¥0.16    ← lands inside the budget
+```
+
+Half the budget on half the files is exactly on track and must not trigger
+anything; half the budget on a fifth of them is an emergency. That is why the
+config carries no thresholds — over budget, step down a rung; out of rungs and
+still over, trim context; actually out of money, stop.
 
 <details>
 <summary><b>Using a ChatGPT subscription instead of an API key</b></summary>
@@ -329,7 +345,7 @@ and the [checkpoint file](examples/sample-state.json).
 ## Development
 
 ```bash
-npm test              # 189 tests, fully offline, no API key needed
+npm test              # 206 tests, fully offline, no API key needed
 npm run typecheck
 npm run dev -- <url>  # run from source via tsx
 ```

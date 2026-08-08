@@ -2,14 +2,8 @@ import { type Component, Key, matchesKey, type TUI } from "@earendil-works/pi-tu
 import type { Language } from "../config.js";
 import { confidenceLabel, severityLabel } from "../i18n/messages.js";
 import type { Confidence, Evidence, Finding } from "../types.js";
-import {
-  budgetGauge,
-  confidenceGlyph,
-  formatCny,
-  GLYPH,
-  severityStyle,
-  theme,
-} from "./theme.js";
+import { type BudgetUnit, formatBudget } from "../budget/limit.js";
+import { budgetGauge, confidenceGlyph, GLYPH, severityStyle, theme } from "./theme.js";
 import { clip, columns, keyHints, pad, panel, spread, windowAround, wrap } from "./widgets.js";
 
 type Row = { kind: "header"; label: string; tier: Confidence } | { kind: "finding"; finding: Finding };
@@ -18,7 +12,6 @@ export interface TriageActions {
   onPost(selected: Finding[]): Promise<void>;
   onTrace(finding: Finding): void;
   onQuit(): void;
-  onToggleLang(): void;
 }
 
 /**
@@ -39,8 +32,9 @@ export class TriagePanel implements Component {
     private readonly tui: TUI,
     private findings: Finding[],
     private lang: Language,
-    private readonly spendCny: number,
-    private readonly totalCny: number,
+    private readonly spent: number,
+    private readonly limit: number,
+    private readonly unit: BudgetUnit,
     private readonly actions: TriageActions,
   ) {
     this.rebuild();
@@ -75,7 +69,6 @@ export class TriagePanel implements Component {
     else if (data === "n") this.selected.clear();
     else if (data === "t" && current?.kind === "finding") this.actions.onTrace(current.finding);
     else if (matchesKey(data, Key.enter) && current?.kind === "finding") this.actions.onTrace(current.finding);
-    else if (data === "l") this.actions.onToggleLang();
     else if (data === "p") void this.post();
     else if (data === "q" || matchesKey(data, Key.escape)) this.actions.onQuit();
     else return;
@@ -114,8 +107,8 @@ export class TriagePanel implements Component {
       `  ${confidenceGlyph("adoptable")} ${theme.ok(String(adoptable))}` +
       `  ${confidenceGlyph("reference")} ${theme.warn(String(this.findings.length - adoptable))}`;
     const right =
-      `${budgetGauge(this.totalCny > 0 ? this.spendCny / this.totalCny : 0)} ` +
-      theme.dim(`${formatCny(this.spendCny)}/${formatCny(this.totalCny)}`);
+      `${budgetGauge(this.limit > 0 ? this.spent / this.limit : 0)} ` +
+      theme.dim(`${formatBudget(this.spent, this.unit)}/${formatBudget(this.limit, this.unit)}`);
     return [spread(left, right, width), ""];
   }
 
@@ -189,7 +182,8 @@ export class TriagePanel implements Component {
     }
 
     out.push("");
-    out.push(theme.dim(`${GLYPH.tool} ${finding.tracePath}   ${theme.accent("t")} ${theme.dim("open trace")}`));
+    const openTrace = this.lang === "zh" ? "查看 trace" : "open trace";
+    out.push(theme.dim(`${GLYPH.tool} ${finding.tracePath}   ${theme.accent("t")} ${theme.dim(openTrace)}`));
 
     return out.slice(0, height);
   }
@@ -201,7 +195,6 @@ export class TriagePanel implements Component {
       ["a", this.lang === "zh" ? "全选可采纳" : "all adoptable"],
       ["t", "trace"],
       ["p", this.lang === "zh" ? "回评" : "post"],
-      ["l", this.lang === "zh" ? "语言" : "lang"],
       ["q", this.lang === "zh" ? "退出" : "quit"],
     ]);
     return ["", spread(this.status ? theme.ok(this.status) : "", hints, width)];

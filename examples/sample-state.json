@@ -5,21 +5,20 @@
   "platform": "github",
   "headSha": "b5afa3ffb7d18068231b1c8cf7f64a81adcc700d",
   "diffHash": "0b26c70c25e1e09142fdccb383f9614c7f313b93b90904110dbbd883e78d7b31",
-  "startedAt": "2026-08-08T02:29:32.919Z",
-  "updatedAt": "2026-08-08T02:30:00.591Z",
+  "startedAt": "2026-08-08T03:44:37.172Z",
+  "updatedAt": "2026-08-08T03:45:10.901Z",
   "spend": {
-    "usd": 0.04896450000000001,
-    "cny": 0.35499262500000006,
-    "inputTokens": 8853,
-    "outputTokens": 1712,
-    "cacheReadTokens": 4608,
-    "calls": 7,
+    "usd": 0.038862,
+    "inputTokens": 3144,
+    "outputTokens": 1862,
+    "cacheReadTokens": 12288,
+    "calls": 8,
     "byModel": {
       "openai/gpt-5.4": {
-        "usd": 0.04896450000000001,
-        "calls": 7,
-        "inputTokens": 8853,
-        "outputTokens": 1712
+        "usd": 0.038862,
+        "calls": 8,
+        "inputTokens": 3144,
+        "outputTokens": 1862
       }
     }
   },
@@ -32,7 +31,7 @@
       "path": "demo/src/cache.ts",
       "status": "done",
       "findings": 2,
-      "spendUsd": 0.011734000000000001,
+      "spendUsd": 0.008843,
       "attempts": 1
     },
     {
@@ -40,7 +39,7 @@
       "path": "demo/src/config.ts",
       "status": "done",
       "findings": 2,
-      "spendUsd": 0.0100575,
+      "spendUsd": 0.007396499999999999,
       "attempts": 1
     },
     {
@@ -48,7 +47,7 @@
       "path": "demo/src/retry.ts",
       "status": "done",
       "findings": 1,
-      "spendUsd": 0.0088225,
+      "spendUsd": 0.0058615,
       "attempts": 1
     },
     {
@@ -56,10 +55,15 @@
       "path": "demo/src/session.ts",
       "status": "done",
       "findings": 4,
-      "spendUsd": 0.0183505,
+      "spendUsd": 0.016761,
       "attempts": 1
     }
   ],
   "crossFileDone": false,
-  "finished": true
+  "finished": true,
+  "budget": {
+    "limit": 6,
+    "unit": "CNY",
+    "usdToCny": 7.25
+  }
 }

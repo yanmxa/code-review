@@ -87,10 +87,6 @@ export function budgetGauge(fraction: number, width = 10): string {
   return colour(GLYPH.gaugeFull.repeat(filled)) + theme.dim(GLYPH.gaugeEmpty.repeat(width - filled));
 }
 
-export function formatCny(value: number): string {
-  return `¥${value.toFixed(2)}`;
-}
-
 export function formatTokens(count: number): string {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
   if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;

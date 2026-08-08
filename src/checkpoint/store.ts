@@ -191,8 +191,15 @@ export class RunStore {
     return readJson<PrSnapshot>(this.dirs.snapshot);
   }
 
-  updateSpend(spend: SpendLedger, ladderStage: number, squeezed: boolean, hardStopped: boolean): void {
+  updateSpend(
+    spend: SpendLedger,
+    ladderStage: number,
+    squeezed: boolean,
+    hardStopped: boolean,
+    budget?: RunState["budget"],
+  ): void {
     this.state.spend = spend;
+    if (budget) this.state.budget = budget;
     this.state.ladderStage = ladderStage;
     this.state.squeezed = squeezed;
     this.state.hardStopped = hardStopped;
@@ -280,7 +287,7 @@ export interface RunSummary {
   units: number;
   done: number;
   findings: number;
-  spendCny: number;
+  spendUsd: number;
 }
 
 /** Enumerate checkpointed runs, newest first — backs `code-review runs`. */
@@ -305,7 +312,7 @@ export function listRuns(runDir: string): RunSummary[] {
       units: state.units.length,
       done: state.units.filter((u) => u.status === "done").length,
       findings: state.units.reduce((sum, u) => sum + u.findings, 0),
-      spendCny: state.spend.cny,
+      spendUsd: state.spend.usd,
     });
   }
   return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

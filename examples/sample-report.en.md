@@ -6,7 +6,7 @@
 | **Branch** | `demo/planted-defects` → `main` |
 | **Head** | `b5afa3ffb7` |
 | **Files reviewed** | 4 / 4 |
-| **Spend** | ¥0.31 / ¥6.00 ($0.0430) |
+| **Spend** | ¥0.25 / ¥6.00 (5.6k tokens) |
 | **Models used** | `openai/gpt-5.4` |
 | **Run** | `2a008cf0e899` |
 
@@ -78,15 +78,15 @@ A new `console.log`/`console.debug` is usually debugging residue. Use the projec
 
 ## 💭 For reference (model reasoning) (3)
 
-### F-006 · ○ `demo/src/cache.ts:11-13` — Eviction runs even when overwriting an existing key
+### F-006 · ○ `demo/src/cache.ts:11-13` — Eviction runs even when updating an existing key
 
 **major** · reference
 
-This condition evicts an entry whenever the cache is full, even if `set` is only updating a key that is already present. For example, with a full cache containing `a` and `b`, calling `set("b", nextValue)` will first delete `a`, which incorrectly drops an unrelated entry. Only evict when `key` is not already in the map.
+When the cache is full, this branch deletes the oldest entry before checking whether `key` is already present. Updating an existing entry should not grow the map, but with the current logic it still evicts another item and leaves the cache one slot under capacity. Only evict when `!this.map.has(key)` and the insert would actually increase the size.
 
 <details><summary>Evidence · Trace: `traces/demo_src_cache.ts.jsonl`</summary>
 
-- model reasoning: Reading the full file shows `set` unconditionally evicts on `size >= max` before checking whether the incoming key already exists, so updates at capacity lose an extra entry.
+- model reasoning: Reading the full file shows `set` always performs the eviction check before `map.set`, so a full cache drops an entry even for pure updates.
 
 </details>
 
@@ -94,7 +94,7 @@ This condition evicts an entry whenever the cache is full, even if `set` is only
 
 **major** · reference
 
-The loop condition `i <= attempts` calls `fn()` `attempts + 1` times, so `attempts = 3` results in 4 executions. That breaks the helper's contract and can duplicate side effects or exceed rate limits. Change the condition to `< attempts` if `attempts` is meant to be the total number of tries.
+The loop condition uses `<= attempts`, so `withRetry(fn, 3)` can call `fn` **4 times** instead of 3. That changes the contract of the helper and can cause duplicate side effects or exceed rate limits; stop once `i` reaches `attempts`.
 
 **Suggested change**
 
@@ -104,19 +104,19 @@ for (let i = 0; i < attempts; i++) {
 
 <details><summary>Evidence · Trace: `traces/demo_src_retry.ts.jsonl`</summary>
 
-- model reasoning: Counting the iterations shows the loop runs for `i = 0, 1, ..., attempts`, which is one more execution than the API name and default value imply.
+- model reasoning: The loop starts at 0, so using `<= attempts` executes for indices 0 through `attempts` inclusive, which is `attempts + 1` iterations.
 
 </details>
 
-### F-008 · ○ `demo/src/session.ts:15-16` — Database failures are silently turned into “no session”
+### F-008 · ○ `demo/src/session.ts:15-16` — Database failures are silently turned into `undefined`
 
 **major** · reference
 
-The empty `catch` swallows every query error and lets `loadSession()` resolve to `undefined`. That makes a database outage indistinguishable from a missing session, so callers can continue with incorrect state instead of handling the failure. Re-throw the error (or return an explicit error result) so lookup failures are not hidden.
+This empty `catch` causes `loadSession()` to resolve successfully with `undefined` whenever the query throws. Callers can no longer distinguish "session not found" from "database unavailable", which will mask outages and can lead to incorrect authentication flow. Re-throw the error or convert it into an explicit error result instead of swallowing it.
 
 <details><summary>Evidence · Trace: `traces/demo_src_session.ts.jsonl`</summary>
 
-- model reasoning: Reading the full file shows the `catch` block is empty, so any exception from `db.query(...)` is suppressed and the async function falls through without a return value.
+- model reasoning: Reading the function shows that the `catch` block has no return or throw, so any exception from `db.query(...)` is suppressed and the async function resolves `undefined`.
 
 </details>
 
@@ -126,16 +126,16 @@ The empty `catch` swallows every query error and lets `loadSession()` resolve to
 
 | Model | Calls | Input tokens | Output tokens | USD |
 | --- | ---: | ---: | ---: | ---: |
-| `openai/gpt-5.4` | 8 | 9,056 | 1,255 | 0.0430 |
-| **Total** | **8** | **9,056** | **1,255** | **0.0430** |
+| `openai/gpt-5.4` | 8 | 4,082 | 1,480 | 0.0351 |
+| **Total** | **8** | **4,082** | **1,480** | **0.0351** |
 
 ### Redaction summary
 
 These were replaced with placeholders before anything was sent to a model; the original values never left this machine.
 
 - `aws-access-key` × 1
-- `high-entropy` × 69
+- `high-entropy` × 58
 
 ---
 
-_Generated by code-review · 2026-08-08T02:29:05.035Z_
+_Generated by code-review · 2026-08-08T03:46:31.322Z_

@@ -1,8 +1,9 @@
 import type { BudgetConfig, ModelRef, SpendLedger } from "../types.js";
+import { formatBudget } from "./limit.js";
 
 export type BudgetDecision =
-  | { allowed: true; model: ModelRef; downgradedFrom?: ModelRef }
-  | { allowed: false; reason: "hard_stop" };
+  | { allowed: true; model: ModelRef }
+  | { allowed: false; reason: "exhausted" };
 
 export interface BudgetEvent {
   kind: "downgrade" | "squeeze" | "hard_stop";
@@ -12,7 +13,6 @@ export interface BudgetEvent {
 export function emptyLedger(): SpendLedger {
   return {
     usd: 0,
-    cny: 0,
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
@@ -22,11 +22,22 @@ export function emptyLedger(): SpendLedger {
 }
 
 /**
- * The run's spend ledger and the policy that reacts to it.
+ * The run's spend ledger, and the control loop that reacts to it.
  *
- * Every LLM call passes through {@link authorize} before it happens and
- * {@link record} after. That single funnel is why the budget can react mid-unit
- * rather than only between units: a downgrade takes effect on the very next turn.
+ * Two rules, deliberately different:
+ *
+ *   **Stop on fact.** The run halts when the budget is actually spent. That is
+ *   a real constraint and needs no forecasting.
+ *
+ *   **Steer on forecast.** Choosing when to downgrade from how much has been
+ *   spent ignores the only thing that matters — whether the remaining work will
+ *   fit. Spending half the budget on half the files is exactly on track and
+ *   must not trigger anything; spending half on a fifth of them is an emergency.
+ *   So the ladder steps on projected total, recomputed after each unit.
+ *
+ * That is why the ladder carries no thresholds. It is an ordered list of models
+ * and nothing more: over budget, step down one rung; out of rungs and still
+ * over, squeeze the context; actually out of money, stop.
  */
 export class BudgetManager {
   private readonly listeners: ((event: BudgetEvent) => void)[] = [];
@@ -34,15 +45,15 @@ export class BudgetManager {
   private stage = 0;
   private squeezedFlag = false;
   private stopped = false;
+  private projection?: number;
 
   constructor(
     private readonly config: BudgetConfig,
-    initial?: { ledger?: SpendLedger; stage?: number; squeezed?: boolean; hardStopped?: boolean },
+    initial?: { ledger?: SpendLedger; stage?: number; squeezed?: boolean },
   ) {
     this.ledger = initial?.ledger ?? emptyLedger();
     this.stage = initial?.stage ?? 0;
     this.squeezedFlag = initial?.squeezed ?? false;
-    this.stopped = initial?.hardStopped ?? false;
   }
 
   onEvent(listener: (event: BudgetEvent) => void): void {
@@ -53,18 +64,33 @@ export class BudgetManager {
     return this.ledger;
   }
 
-  get totalCny(): number {
-    return this.config.totalCny;
+  /** Consumption so far, expressed in the budget's own unit. */
+  get spent(): number {
+    const unit = this.config.limit.unit;
+    if (unit === "tokens") return this.ledger.inputTokens + this.ledger.outputTokens;
+    if (unit === "USD") return this.ledger.usd;
+    return this.ledger.usd * this.config.usdToCny;
   }
 
-  /** Spent / total, clamped at 1 so gauges never overflow. */
+  get limit(): number {
+    return this.config.limit.amount;
+  }
+
+  get unit(): BudgetConfig["limit"]["unit"] {
+    return this.config.limit.unit;
+  }
+
+  get usdToCnyRate(): number {
+    return this.config.usdToCny;
+  }
+
+  /** Spent / limit, clamped so gauges never overflow. */
   get fraction(): number {
-    return Math.min(1, this.ledger.cny / this.config.totalCny);
+    return Math.min(1, this.rawFraction);
   }
 
-  /** Unclamped, for deciding whether the hard stop has been crossed. */
   get rawFraction(): number {
-    return this.ledger.cny / this.config.totalCny;
+    return this.limit > 0 ? this.spent / this.limit : 0;
   }
 
   get ladderStage(): number {
@@ -75,74 +101,85 @@ export class BudgetManager {
     return this.stopped;
   }
 
-  /**
-   * Whether the budget is spent, latching and announcing it the moment we notice.
-   *
-   * Callers other than {@link authorize} need this: the ledger can cross the
-   * limit on a response, and nothing would observe it until the next request
-   * unless the check is available on its own. Reading a stale `hardStopped`
-   * would let one more unit start on money that is already gone.
-   */
-  checkExhausted(): boolean {
-    if (this.stopped) return true;
-    if (this.rawFraction < this.config.hardStopAtFraction) return false;
-    this.stopped = true;
-    this.emit({
-      kind: "hard_stop",
-      detail: `¥${this.ledger.cny.toFixed(2)} / ¥${this.config.totalCny.toFixed(2)}`,
-    });
-    return true;
-  }
-
-  /** True once context should be trimmed to stretch the remaining budget. */
   get squeezed(): boolean {
     return this.squeezedFlag;
   }
 
-  /** The model the current spend level calls for. */
+  /** What the run is currently forecast to consume in total, once measurable. */
+  get projectedTotal(): number | undefined {
+    return this.projection;
+  }
+
   currentModel(): ModelRef {
-    const ladder = this.config.ladder;
-    return (ladder[this.stage] ?? ladder[ladder.length - 1])!.model;
+    const models = this.config.models;
+    return (models[this.stage] ?? models[models.length - 1])!;
   }
 
   /**
-   * Decide whether the next LLM call may run, and on which model.
+   * Whether the budget is spent, latching and announcing it the moment we notice.
    *
-   * Called before *every* request, including the ones a tool makes internally.
+   * Callers other than {@link authorize} need this: the ledger can cross the
+   * limit on a response, and nothing would observe it until the next request.
+   * Reading a stale flag would let one more unit start on money already gone.
    */
+  checkExhausted(): boolean {
+    if (this.stopped) return true;
+    if (this.rawFraction < 1) return false;
+    this.stopped = true;
+    this.emit({ kind: "hard_stop", detail: `${this.formatted(this.spent)} / ${this.formatted(this.limit)}` });
+    return true;
+  }
+
+  /** Gate every LLM call. Only actual spend can refuse one. */
   authorize(): BudgetDecision {
-    if (this.checkExhausted()) return { allowed: false, reason: "hard_stop" };
+    if (this.checkExhausted()) return { allowed: false, reason: "exhausted" };
+    return { allowed: true, model: this.currentModel() };
+  }
 
-    const previous = this.currentModel();
-    this.advanceLadder();
-    const model = this.currentModel();
+  /**
+   * Recompute the forecast after a unit finishes, and escalate if it overruns.
+   *
+   * At most one step per unit: a single expensive file should nudge the ladder,
+   * not collapse it. Steps are one-way — a ladder that could climb back would
+   * make cost non-monotonic and the run unpredictable.
+   *
+   * An early forecast is a small sample and can overreact, and that bias is
+   * deliberate: downgrading a file too soon costs some review quality, while
+   * downgrading too late costs whole files to the hard stop. The cheaper
+   * mistake is the one to make.
+   */
+  reviewProgress(unitsDone: number, unitsTotal: number): void {
+    if (unitsDone <= 0 || unitsTotal <= 0) return;
+    const progress = Math.min(1, unitsDone / unitsTotal);
+    this.projection = this.spent / progress;
 
-    if (!this.squeezedFlag && this.rawFraction >= this.config.squeezeAtFraction) {
-      this.squeezedFlag = true;
-      this.emit({
-        kind: "squeeze",
-        detail: `${Math.round(this.rawFraction * 100)}% spent — trimming context`,
-      });
-    }
+    if (this.projection <= this.limit) return;
 
-    if (model.id !== previous.id || model.provider !== previous.provider) {
+    const over =
+      `projected ${this.formatted(this.projection)} against ${this.formatted(this.limit)} ` +
+      `after ${unitsDone}/${unitsTotal} files`;
+
+    if (this.stage < this.config.models.length - 1) {
+      const from = this.currentModel();
+      this.stage++;
+      const to = this.currentModel();
       this.emit({
         kind: "downgrade",
-        detail: `${previous.provider}/${previous.id} → ${model.provider}/${model.id} at ${Math.round(
-          this.rawFraction * 100,
-        )}%`,
+        detail: `${from.provider}/${from.id} → ${to.provider}/${to.id} — ${over}`,
       });
-      return { allowed: true, model, downgradedFrom: previous };
+      return;
     }
 
-    return { allowed: true, model };
+    if (!this.squeezedFlag) {
+      this.squeezedFlag = true;
+      this.emit({ kind: "squeeze", detail: `trimming context — ${over}` });
+    }
   }
 
   /** Fold a completed call's usage into the ledger. */
   record(modelId: string, usage: UsageLike): void {
     const usd = usage.cost?.total ?? 0;
     this.ledger.usd += usd;
-    this.ledger.cny = this.ledger.usd * this.config.usdToCny;
     this.ledger.inputTokens += usage.input ?? 0;
     this.ledger.outputTokens += usage.output ?? 0;
     this.ledger.cacheReadTokens += usage.cacheRead ?? 0;
@@ -160,32 +197,19 @@ export class BudgetManager {
     entry.outputTokens += usage.output ?? 0;
   }
 
-  /**
-   * Cost of a hypothetical call, for the pre-flight warning.
-   * Uses the primary model's rates, which is the optimistic case.
-   */
-  estimateCny(inputTokens: number, outputTokens: number, rates: { input: number; output: number }): number {
+  /** Cost of a hypothetical call in the budget's unit, for the pre-flight warning. */
+  estimate(inputTokens: number, outputTokens: number, rates: { input: number; output: number }): number {
+    if (this.config.limit.unit === "tokens") return inputTokens + outputTokens;
     const usd = (inputTokens / 1_000_000) * rates.input + (outputTokens / 1_000_000) * rates.output;
-    return usd * this.config.usdToCny;
+    return this.config.limit.unit === "USD" ? usd : usd * this.config.usdToCny;
   }
 
-  snapshot(): { ledger: SpendLedger; stage: number; squeezed: boolean; hardStopped: boolean } {
-    return {
-      ledger: this.ledger,
-      stage: this.stage,
-      squeezed: this.squeezedFlag,
-      hardStopped: this.stopped,
-    };
+  formatted(value: number): string {
+    return formatBudget(value, this.config.limit.unit);
   }
 
-  private advanceLadder(): void {
-    const ladder = this.config.ladder;
-    let target = this.stage;
-    for (let i = this.stage + 1; i < ladder.length; i++) {
-      if (this.rawFraction >= (ladder[i] as { atFraction: number }).atFraction) target = i;
-      else break;
-    }
-    this.stage = target;
+  snapshot(): { ledger: SpendLedger; stage: number; squeezed: boolean } {
+    return { ledger: this.ledger, stage: this.stage, squeezed: this.squeezedFlag };
   }
 
   private emit(event: BudgetEvent): void {
