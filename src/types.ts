@@ -309,7 +309,19 @@ export type RunEvent =
     }
   | { type: "budget"; kind: "downgrade" | "squeeze" | "hard_stop"; detail: string }
   | { type: "finding"; finding: Finding }
-  | { type: "notice"; level: "info" | "warn" | "error"; text: string }
+  | {
+      type: "notice";
+      level: "info" | "warn" | "error";
+      text: string;
+      /**
+       * Progress, not information — cleared once the run is under way.
+       *
+       * A full-screen renderer has one slot for a notice, so a transient line
+       * ("fetching …") sat in it for the whole run and, worse, had overwritten
+       * the message explaining why the budget was counted in tokens.
+       */
+      transient?: boolean;
+    }
   | { type: "run_end"; findings: Finding[]; state: RunState; reportPath?: string };
 
 export type RunEventSink = (event: RunEvent) => void;

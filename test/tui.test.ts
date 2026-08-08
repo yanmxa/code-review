@@ -443,3 +443,31 @@ describe("clipping a line", () => {
     expect(clip("\u4e2d\u6587\u4e2d\u6587\u4e2d\u6587", 5)).toBe("\u4e2d\u6587\u2026");
   });
 });
+
+describe("the dashboard's notice slot", () => {
+  it("does not let a progress line bury something that stays true", () => {
+    // The subscription notice explains why the gauge counts tokens. "Fetching
+    // ..." arrived after it and, with one slot, replaced it for the whole run.
+    const terminal = new FakeTerminal(100, 30);
+    const dashboard = new Dashboard(new TuiAltScreen(terminal), "en", 10);
+    dashboard.handle({ type: "notice", level: "info", text: "budget is in tokens" });
+    dashboard.handle({ type: "notice", level: "info", text: "Fetching http://x", transient: true });
+    dashboard.handle({
+      type: "run_start",
+      snapshot: snapshot(),
+      units: [unit("src/cache.ts")],
+      resumed: false,
+      model: { provider: "openai", id: "gpt-5.4" },
+    });
+    const out = dashboard.render(100).join("\n");
+    expect(out).not.toContain("Fetching");
+    expect(out).toContain("budget is in tokens");
+  });
+
+  it("still shows a progress line when nothing more lasting is waiting", () => {
+    const terminal = new FakeTerminal(100, 30);
+    const dashboard = new Dashboard(new TuiAltScreen(terminal), "en", 10);
+    dashboard.handle({ type: "notice", level: "info", text: "Fetching http://x", transient: true });
+    expect(dashboard.render(100).join("\n")).toContain("Fetching");
+  });
+});

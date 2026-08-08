@@ -52,7 +52,7 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
   const { adapter, models, redactor, config, emit } = deps;
 
   // --- Fetch -------------------------------------------------------------
-  emit({ type: "notice", level: "info", text: `Fetching ${target.webUrl}` });
+  emit({ type: "notice", level: "info", text: `Fetching ${target.webUrl}`, transient: true });
   const snapshot = await adapter.fetchPr(target);
   const diffHash = hashDiff(snapshot.diff);
 

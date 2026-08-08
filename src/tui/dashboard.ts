@@ -54,7 +54,7 @@ export class Dashboard implements Component {
   private readonly findings: Finding[] = [];
   private readonly activity: string[] = [];
   private streamTail = "";
-  private notice?: { level: string; text: string };
+  private notice?: { level: string; text: string; transient?: boolean };
   private readonly startedAt = Date.now();
   private spinnerFrame = 0;
   private finished = false;
@@ -82,6 +82,9 @@ export class Dashboard implements Component {
   handle(event: RunEvent): void {
     switch (event.type) {
       case "run_start":
+        // The fetch it was reporting has finished, and the slot is needed for
+        // things that stay true — such as why the budget is counted in tokens.
+        if (this.notice?.transient) this.notice = undefined;
         this.snapshot = event.snapshot;
         this.model = event.model;
         this.resumed = event.resumed;
@@ -148,7 +151,12 @@ export class Dashboard implements Component {
         break;
 
       case "notice":
-        this.notice = { level: event.level, text: event.text };
+        // Progress never displaces information. Clearing the transient one at
+        // run_start had otherwise lost both: the fetch line took the slot from
+        // the message explaining the budget's unit, and then vacated it.
+        if (!event.transient || !this.notice || this.notice.transient) {
+          this.notice = { level: event.level, text: event.text, transient: event.transient };
+        }
         break;
 
       case "run_end":
