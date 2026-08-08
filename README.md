@@ -9,7 +9,7 @@ the evidence behind it. Built on the [pi](https://github.com/earendil-works/pi) 
 
 - **Deterministic checks run first** — committed secrets, SQL concatenation, unsafe randomness, missing tests. These need no model, and a hit is adoptable-tier evidence
 - **One agent loop per file** — with read-only tools (read a file, search this PR's changes, run the TypeScript compiler), capped at six turns
-- **CI is fed in as fact** — a failing suite is the strongest evidence about a change, and it sits one API call away
+- **CI results are used as fact** — whether the suite passes is already measured, so the model is not asked to guess it; failing checks and their line-level diagnostics go into the review
 - **It only concludes what it can back** — machine-verifiable evidence is "adoptable", model reasoning is "for reference", and the two are never blurred
 - **A rejected comment is never raised again** — deleting or resolving one is a permanent no
 
@@ -423,7 +423,7 @@ and the [checkpoint file](examples/sample-state.json).
 ## Development
 
 ```bash
-npm test              # 242 tests, fully offline, no API key needed
+npm test              # 243 tests, fully offline, no API key needed
 npm run typecheck
 npm run dev -- <url>  # run from source via tsx
 ```
