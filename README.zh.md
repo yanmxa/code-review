@@ -159,7 +159,7 @@ demo/planted-defects → main · 4 files                                        
 │ 16:54:43 ↓ llm toolUse ↑498 ↓112 $0.0010                                           │
 │ 16:54:43 → get_file {"path":"demo/src/db.ts","startLine":1}                        │
 │ 16:54:43   · File not found at head commit: demo/src/db.ts                         │
-│                                                  ↑↓ 移动 · enter 展开 · esc 关闭│
+│                                                     ↑↓ 移动 · enter 展开 · esc 关闭│
 ╰────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -270,7 +270,7 @@ src/
 ## 开发
 
 ```bash
-npm test              # 288 个测试，全部离线，不需要任何 API key
+npm test              # 296 个测试，全部离线，不需要任何 API key
 npm run typecheck
 npm run dev -- <url>  # tsx 直跑，不用先 build
 ```

@@ -286,7 +286,7 @@ The three documents are in Chinese; the examples are not.
 ## Development
 
 ```bash
-npm test              # 288 tests, fully offline, no API key needed
+npm test              # 296 tests, fully offline, no API key needed
 npm run typecheck
 npm run dev -- <url>  # run from source via tsx
 ```
