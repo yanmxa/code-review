@@ -149,6 +149,31 @@ code-review $PR --post && code-review $PR --post
 
 实测结果：续跑时只重跑被打断的那个文件，已完成的不重复计费；`--budget 0.30` 时跑完第 1 个文件就预测到会花 ¥0.37 而降级，之后预测逐步收敛，最终 ¥0.16 落在预算内；硬停时 4 个文件只有 1 个过了 LLM，报告里仍有 5 条可采纳意见。
 
+### 反馈闭环：被否掉的意见不会再提
+
+工具会记住**这个仓库的维护者拒绝过什么**，下次不再提。
+
+判定"拒绝"只认两个明确信号：评论被**删除**，或所在线程被标记 **resolved**。回复反驳算讨论不算判决，不采信。
+
+```bash
+code-review dismissed <pr-url>            # 看这个仓库否掉过什么
+code-review undismiss <pr-url> <fp>       # 撤销某一条
+```
+
+记忆是**仓库级**的，不是运行级——运行目录按 head SHA 建，放在那里的记忆会在下次 push 时蒸发，而那正是工具要重复自己的时刻。
+
+被扣下的意见**不会出现在任何输出里**，只会报告扣了几条。先展示再说"我扣了它"比不过滤更糟。
+
+这条不是锦上添花：一个每次 push 都重复同一条无效意见的机器人，团队学会的唯一行为是无视它。
+
+### 缺少测试是确定性判断
+
+"改了 `src/foo.ts`，本 PR 没动任何看起来覆盖它的测试" —— 这是人做 review 问得最多的问题，而且完全不需要模型。
+
+只在**有实质逻辑新增**时触发（≥8 行，不算 import、括号、注释），按文件名跨生态匹配测试（`foo.test.ts` / `test_foo.py` / `foo_test.go` / `FooTest.java` / `foo_spec.rb` …）。
+
+按名字匹配必然有漏：测试可能覆盖了它却没在名字里提。所以它是 `minor` 级、正文里明说"若已被其他测试覆盖可忽略"——**并且被否一次之后就永远不再提**。两个功能正好互补。
+
 ---
 
 ## 需求对照表
@@ -222,6 +247,9 @@ code-review init                    # 生成 review.config.json 供编辑
 code-review auth                    # 查看当前配置了哪些凭据
 code-review login [provider]        # 用订阅登录（默认 openai-codex）
 code-review logout <provider>       # 删除已存的凭据
+
+code-review dismissed <pr-url>      # 看这个仓库否掉过什么
+code-review undismiss <pr-url> <fp> # 撤销某一条否决
 ```
 
 | 选项 | 说明 |
@@ -307,7 +335,7 @@ PR URL → 拉取(REST，不 clone) → 脱敏 → 切分成评审单元
 ## 开发
 
 ```bash
-npm test              # 206 个测试，全部离线，不需要任何 API key
+npm test              # 230 个测试，全部离线，不需要任何 API key
 npm run typecheck
 npm run dev -- <url>  # tsx 直跑，不用先 build
 ```

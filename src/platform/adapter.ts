@@ -8,6 +8,14 @@ export interface MarkerComment {
   /** Fingerprint parsed out of the `<!-- code-review:f:... -->` marker. */
   fingerprint?: string;
   isSummary: boolean;
+  /**
+   * Whether the maintainer marked the thread resolved.
+   *
+   * Undefined means the host cannot tell us. That is not the same as `false`:
+   * treating "unknown" as "unresolved" keeps a finding alive, which is the
+   * safer default when the signal is missing.
+   */
+  resolved?: boolean;
 }
 
 export interface InlineComment {

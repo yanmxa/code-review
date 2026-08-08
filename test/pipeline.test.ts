@@ -329,3 +329,45 @@ describe("pipeline — findings on disk", () => {
     expect(dedupe(store.readFindings())).toHaveLength(onDisk.length);
   });
 });
+
+describe("pipeline — dismissed findings", () => {
+  it("never emits a finding a maintainer already rejected", async () => {
+    const adapter = new FakePlatform(SAMPLE_DIFF);
+    const { models } = scriptedModels([submitMessage([]), submitMessage([])]);
+
+    // Learn what the run would normally produce.
+    const baseline: RunEvent[] = [];
+    const first = await runReview(TEST_TARGET, {
+      adapter,
+      models,
+      redactor: new Redactor(),
+      config: config(),
+      emit: (event) => baseline.push(event),
+    });
+    const victim = first.findings[0];
+    expect(victim).toBeDefined();
+
+    // Now re-run with that fingerprint dismissed.
+    const second = scriptedModels([submitMessage([]), submitMessage([])]);
+    const events: RunEvent[] = [];
+    const result = await runReview(TEST_TARGET, {
+      adapter,
+      models: second.models,
+      redactor: new Redactor(),
+      config: config({ fresh: true }),
+      emit: (event) => events.push(event),
+      dismissed: new Set([victim!.fingerprint]),
+    });
+
+    expect(result.findings.map((f) => f.fingerprint)).not.toContain(victim!.fingerprint);
+    expect(result.suppressed).toBeGreaterThan(0);
+
+    // Showing it and then announcing it was withheld would be worse than not
+    // filtering at all, so it must not reach the event stream either.
+    const emitted = events.filter((e) => e.type === "finding");
+    expect(emitted.map((e) => e.type === "finding" && e.finding.fingerprint)).not.toContain(
+      victim!.fingerprint,
+    );
+    expect(events.some((e) => e.type === "notice" && e.text.includes("Withheld"))).toBe(true);
+  });
+});

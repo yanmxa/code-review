@@ -159,6 +159,46 @@ triggered a downgrade, after which the forecast converged and the run closed at
 ¥0.16; under the hard stop only 1 of 4 files reached the model, yet the report
 still carried 5 adoptable findings.
 
+### The feedback loop: a rejected comment is never raised again
+
+The tool remembers what **this repository's maintainers have rejected**, and
+stops raising it.
+
+Only two signals count as a rejection: the comment was **deleted**, or its
+thread was marked **resolved**. A reply arguing with a finding is a
+conversation, not a verdict, and is left alone.
+
+```bash
+code-review dismissed <pr-url>            # what this repo has rejected
+code-review undismiss <pr-url> <fp>       # take one back
+```
+
+The memory is scoped **per repository**, not per run — a run directory is keyed
+by head SHA, so anything remembered there would evaporate on the next push,
+which is exactly when the tool would repeat itself.
+
+A withheld finding **does not appear in any output**; only the count is
+reported. Showing it and then announcing it was withheld would be worse than
+not filtering at all.
+
+This is not a nicety. A reviewer that repeats a rejected comment on every push
+teaches the team to ignore it, and a review tool that gets ignored has failed
+however good its findings are.
+
+### Missing tests is a deterministic finding
+
+"You changed `src/foo.ts` and this PR touches no test that appears to cover it"
+is the question human reviewers ask most often, and it needs no model at all.
+
+It fires only on **substantive new logic** (≥8 added lines, excluding imports,
+braces, and comments), matching test files by name across ecosystems
+(`foo.test.ts`, `test_foo.py`, `foo_test.go`, `FooTest.java`, `foo_spec.rb`, …).
+
+Name matching necessarily misses tests that cover a file without naming it. So
+the finding is `minor`, its body says to ignore it if coverage exists elsewhere
+— and one dismissal retires it permanently. The two features are built for each
+other.
+
 ---
 
 ## Requirements, and what implements each
@@ -238,6 +278,9 @@ code-review init                    # write review.config.json to edit
 code-review auth                    # show which credentials are configured
 code-review login [provider]        # sign in with a subscription
 code-review logout <provider>       # forget a stored credential
+
+code-review dismissed <pr-url>      # what this repo's maintainers rejected
+code-review undismiss <pr-url> <fp> # raise a dismissed finding again
 ```
 
 | Option | Meaning |
@@ -345,7 +388,7 @@ and the [checkpoint file](examples/sample-state.json).
 ## Development
 
 ```bash
-npm test              # 206 tests, fully offline, no API key needed
+npm test              # 230 tests, fully offline, no API key needed
 npm run typecheck
 npm run dev -- <url>  # run from source via tsx
 ```

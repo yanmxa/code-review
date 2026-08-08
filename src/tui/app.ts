@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { RunStore } from "../checkpoint/store.js";
 import type { Config, Language } from "../config.js";
 import { dedupe } from "../engine/grade.js";
+import { DismissalStore } from "../memory/dismissals.js";
 import type { ReportInput } from "../report/markdown.js";
 import { postFindings } from "../report/post.js";
 import { Redactor } from "../security/redactor.js";
@@ -178,6 +179,7 @@ async function triageLoop(tui: TUI, context: TriageContext): Promise<void> {
               findings: selected,
               report: { ...context.report, findings: selected },
               lang,
+              memory: DismissalStore.forTarget(context.snapshot.target),
             });
             if (result.posted === 0 && result.skippedAsDuplicate > 0) {
               throw new Error(

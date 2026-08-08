@@ -150,6 +150,111 @@ const RULES: Rule[] = [
 ];
 
 /**
+ * Facts about the whole pull request that a single-file rule cannot see.
+ *
+ * "This file changed and its tests did not" is the most frequently useful
+ * comment a human reviewer makes, and it is fully deterministic — but only if
+ * you can see every path the change touches.
+ */
+export interface PrRuleContext {
+  changedPaths: string[];
+}
+
+const TEST_PATH = [
+  /(^|\/)(tests?|__tests__|spec|specs|testing)\//i,
+  /\.(test|spec)\.[cm]?[jt]sx?$/,
+  /_test\.(go|py|rb|rs|dart)$/,
+  /(^|\/)test_[^/]+\.py$/,
+  /Tests?\.(java|kt|cs|swift|scala)$/,
+  /_spec\.rb$/,
+];
+
+/** Files whose change is worth asking about; everything else is noise. */
+const TESTABLE_SOURCE = /\.(m|c)?(ts|tsx|js|jsx|py|go|rb|rs|java|kt|cs|swift|php|scala)$/;
+
+const NOT_WORTH_TESTING = [
+  /\.d\.ts$/,
+  /(^|\/)(index|types?|constants?|schema)\.[cm]?[jt]sx?$/,
+  /\.config\.[cm]?[jt]s$/,
+  // `demo` is deliberately absent: plenty of projects ship a demo that is real
+  // application code. When it genuinely does not warrant tests, one dismissal
+  // retires the finding for good — which is cheaper than a guess baked in here.
+  /(^|\/)(migrations?|fixtures?|mocks?|examples?|scripts?)\//i,
+];
+
+export function isTestPath(path: string): boolean {
+  return TEST_PATH.some((pattern) => pattern.test(path));
+}
+
+/** The filename without directory or extension, e.g. `src/cache/store.ts` → `store`. */
+export function stemOf(path: string): string {
+  const base = path.split("/").pop() ?? path;
+  return base.replace(/\.(test|spec)\b/, "").replace(/\.[^.]+$/, "").replace(/^test_/, "");
+}
+
+/**
+ * Does this change touch any test that plausibly covers `path`?
+ *
+ * Name matching only — a test that exercises the file without naming it is
+ * invisible here. That is why the finding is a `minor` prompt rather than an
+ * assertion, and why it says so in its own body: the reader is better placed
+ * than the tool to know whether coverage exists elsewhere.
+ */
+export function hasMatchingTestChange(path: string, changedPaths: string[]): boolean {
+  const stem = stemOf(path).toLowerCase();
+  if (stem.length < 3) return true; // Too generic to match on; do not guess.
+  return changedPaths.some(
+    (candidate) => isTestPath(candidate) && stemOf(candidate).toLowerCase().includes(stem),
+  );
+}
+
+/** Enough new logic that a reviewer would expect a test to come with it. */
+const TEST_EXPECTED_ADDED_LINES = 8;
+
+function missingTestCoverage(
+  unit: ReviewUnit,
+  context: PrRuleContext,
+  lang: Language,
+): RuleHit | null {
+  if (!TESTABLE_SOURCE.test(unit.path)) return null;
+  if (isTestPath(unit.path)) return null;
+  if (NOT_WORTH_TESTING.some((pattern) => pattern.test(unit.path))) return null;
+
+  const added = addedLines(unit.hunks).filter((line) => isSubstantive(line.text));
+  if (added.length < TEST_EXPECTED_ADDED_LINES) return null;
+  if (hasMatchingTestChange(unit.path, context.changedPaths)) return null;
+
+  const anchor = added[0];
+  if (!anchor) return null;
+
+  return {
+    ruleId: "no-test-change",
+    path: unit.path,
+    line: anchor.line,
+    excerpt: anchor.text.trim(),
+    severity: "minor",
+    title: lang === "zh" ? "改动没有配套的测试变更" : "Changed without a matching test change",
+    body:
+      lang === "zh"
+        ? `这次改动为 \`${unit.path}\` 新增了 ${added.length} 行逻辑，但本 PR 没有改动任何看起来覆盖它的测试文件。` +
+          `如果这段逻辑已被其他测试覆盖（或按文件名匹配不到），可以忽略本条——但它值得确认一次。`
+        : `This change adds ${added.length} lines of logic to \`${unit.path}\`, and the pull request ` +
+          `does not touch any test file that appears to cover it. Ignore this if the behaviour is ` +
+          `covered by a test that does not match on name — but it is worth confirming once.`,
+  };
+}
+
+/** Blank lines, closing braces, and imports are not the logic anyone tests. */
+function isSubstantive(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  if (/^[)}\];,]+$/.test(trimmed)) return false;
+  if (/^(import|export\s+(type\s+)?\{|from|package|use|#include)\b/.test(trimmed)) return false;
+  if (/^(\/\/|\*|\/\*|#)/.test(trimmed)) return false;
+  return true;
+}
+
+/**
  * Run the deterministic pass over a unit.
  *
  * Secrets are handled separately: by the time a diff reaches here the redactor
@@ -157,8 +262,13 @@ const RULES: Rule[] = [
  * re-implementing detection — a `[REDACTED:...]` marker on an added line is
  * proof a credential was committed.
  */
-export function runRules(unit: ReviewUnit, lang: Language): RuleHit[] {
+export function runRules(unit: ReviewUnit, lang: Language, context?: PrRuleContext): RuleHit[] {
   const hits: RuleHit[] = [];
+
+  if (context) {
+    const missing = missingTestCoverage(unit, context, lang);
+    if (missing) hits.push(missing);
+  }
 
   for (const { line, text } of addedLines(unit.hunks)) {
     const secret = text.match(/\[REDACTED:([a-z0-9-]+):[a-f0-9]{4}\]/);
@@ -206,4 +316,4 @@ export function redactHits(hits: RuleHit[], redactor: Redactor): RuleHit[] {
   return hits.map((hit) => ({ ...hit, excerpt: redactor.redact(hit.excerpt) }));
 }
 
-export const RULE_IDS = [...RULES.map((rule) => rule.id), "secret-in-diff"];
+export const RULE_IDS = [...RULES.map((rule) => rule.id), "secret-in-diff", "no-test-change"];

@@ -8,6 +8,7 @@ import type { PlatformAdapter } from "./platform/adapter.js";
 import { renderReport, type ReportInput } from "./report/markdown.js";
 import { postFindings, type PostSummary } from "./report/post.js";
 import { FileCredentialStore } from "./auth/credential-store.js";
+import { DismissalStore } from "./memory/dismissals.js";
 import { isSubscriptionAuth } from "./auth/login.js";
 import { formatBudget, formatTokenCount } from "./budget/limit.js";
 import { Redactor } from "./security/redactor.js";
@@ -30,6 +31,8 @@ export interface RunOutcome {
   report: ReportInput;
   reportPath: string;
   posted?: PostSummary;
+  /** Findings withheld because they had been dismissed before. */
+  suppressed: number;
   hardStopped: boolean;
 }
 
@@ -50,6 +53,7 @@ export async function executeRun(options: RunOptions): Promise<RunOutcome> {
   const adapter = await createAdapter(target, redactor);
   const models = await createModelRegistry(process.env, credentials);
   const budgetConfig = await resolveBudgetUnit(models, config, options.emit);
+  const memory = DismissalStore.forTarget(target);
 
   const budgetEvents: { kind: string; detail: string }[] = [];
   const emit: RunEventSink = (event: RunEvent) => {
@@ -63,6 +67,7 @@ export async function executeRun(options: RunOptions): Promise<RunOutcome> {
     redactor,
     config: { ...config, budget: budgetConfig },
     emit,
+    dismissed: memory.dismissed(),
     signal: options.signal,
   });
 
@@ -102,6 +107,7 @@ export async function executeRun(options: RunOptions): Promise<RunOutcome> {
       findings: result.findings,
       report,
       lang: config.lang,
+      memory,
     });
   }
 
@@ -114,6 +120,7 @@ export async function executeRun(options: RunOptions): Promise<RunOutcome> {
     report,
     reportPath,
     posted,
+    suppressed: result.suppressed,
     hardStopped: result.store.current.hardStopped,
   };
 }

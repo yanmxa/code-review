@@ -1,4 +1,5 @@
 import type { RunStore } from "../checkpoint/store.js";
+import type { DismissalStore } from "../memory/dismissals.js";
 import type { Language } from "../config.js";
 import { commentableLines, snapToCommentable } from "../platform/diff.js";
 import {
@@ -17,6 +18,8 @@ export interface PostOptions {
   findings: Finding[];
   report: ReportInput;
   lang: Language;
+  /** Repository-scoped memory of what has been posted and what was rejected. */
+  memory?: DismissalStore;
   /** Skip the network call and report what would happen. */
   dryRun?: boolean;
 }
@@ -25,6 +28,10 @@ export interface PostSummary {
   posted: number;
   skippedAsDuplicate: number;
   unanchorable: number;
+  /** Findings withheld because a maintainer had already rejected them. */
+  skippedAsDismissed: number;
+  /** Newly detected rejections, learned from this run's reconciliation. */
+  newlyDismissed: number;
   url?: string;
 }
 
@@ -42,14 +49,22 @@ export async function postFindings(options: PostOptions): Promise<PostSummary> {
   const { adapter, snapshot, store, findings, lang } = options;
 
   const alreadyPosted = new Set(store.readPosted());
+  let newlyDismissed = 0;
+
   try {
-    for (const comment of await adapter.listExistingComments(snapshot.target)) {
+    const present = await adapter.listExistingComments(snapshot.target);
+    for (const comment of present) {
       if (comment.fingerprint) alreadyPosted.add(comment.fingerprint);
     }
+    // Anything we posted that is now gone, or whose thread was resolved, is a
+    // maintainer saying no. Learn it here, before deciding what to post.
+    newlyDismissed = options.memory?.reconcile(present, snapshot.target.number).length ?? 0;
   } catch {
-    // If the host will not tell us what is already there, the local cache is
+    // If the host will not tell us what is already there, the local record is
     // still a decent guard — better to post than to abort the whole run.
   }
+
+  const dismissed = options.memory?.dismissed() ?? new Set<string>();
 
   // Which post-image lines each file actually exposes for comments.
   const anchorsByPath = new Map<string, Set<number>>();
@@ -58,9 +73,14 @@ export async function postFindings(options: PostOptions): Promise<PostSummary> {
   const comments: InlineComment[] = [];
   const postedFingerprints: string[] = [];
   let skippedAsDuplicate = 0;
+  let skippedAsDismissed = 0;
   let unanchorable = 0;
 
   for (const finding of findings) {
+    if (dismissed.has(finding.fingerprint)) {
+      skippedAsDismissed++;
+      continue;
+    }
     if (alreadyPosted.has(finding.fingerprint)) {
       skippedAsDuplicate++;
       continue;
@@ -93,16 +113,25 @@ export async function postFindings(options: PostOptions): Promise<PostSummary> {
   );
 
   if (options.dryRun) {
-    return { posted: comments.length, skippedAsDuplicate, unanchorable };
+    return {
+      posted: comments.length,
+      skippedAsDuplicate,
+      skippedAsDismissed,
+      newlyDismissed,
+      unanchorable,
+    };
   }
 
   const result = await adapter.postReview(snapshot.target, { summary, comments });
   // Recorded only after the host accepted them, so a failed post is retried.
   store.addPosted(postedFingerprints);
+  options.memory?.recordPosted(postedFingerprints, snapshot.target.number);
 
   return {
     posted: result.posted,
     skippedAsDuplicate,
+    skippedAsDismissed,
+    newlyDismissed,
     unanchorable: unanchorable + result.demoted,
     url: result.url,
   };

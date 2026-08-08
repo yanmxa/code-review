@@ -10,7 +10,7 @@ import { Tracer } from "../trace/tracer.js";
 import type { Finding, PrSnapshot, ReviewUnit, RunEventSink, Target } from "../types.js";
 import { dedupe, findingFromRule, gradeAgentFinding } from "./grade.js";
 import { reviewUnit } from "./review-agent.js";
-import { redactHits, runRules } from "./rules-engine.js";
+import { type PrRuleContext, redactHits, runRules } from "./rules-engine.js";
 import { estimateTokens, planUnits } from "./units.js";
 
 export interface PipelineDeps {
@@ -19,11 +19,19 @@ export interface PipelineDeps {
   redactor: Redactor;
   config: Config;
   emit: RunEventSink;
+  /**
+   * Fingerprints a maintainer has already rejected on this repository. A
+   * reviewer that re-raises a dismissed comment on every push teaches the team
+   * to ignore it, so these are dropped before anyone sees them.
+   */
+  dismissed?: Set<string>;
   signal?: AbortSignal;
 }
 
 export interface PipelineResult {
   findings: Finding[];
+  /** How many findings were withheld because they had been dismissed before. */
+  suppressed: number;
   store: RunStore;
   snapshot: PrSnapshot;
   budget: BudgetManager;
@@ -58,6 +66,7 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
 
   // --- Plan --------------------------------------------------------------
   const { units, skipped } = planUnits(snapshot.files, config.maxUnitDiffLines);
+  const ruleContext: PrRuleContext = { changedPaths: snapshot.files.map((file) => file.path) };
   store.initUnits(units.map((unit) => ({ id: unit.id, path: unit.path })));
 
   const budget = new BudgetManager(config.budget, {
@@ -82,7 +91,16 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
   warnIfBudgetLooksTight(units, budget, models, config, emit);
 
   // --- Review ------------------------------------------------------------
-  const findings: Finding[] = store.readFindings();
+  const dismissed = deps.dismissed ?? new Set<string>();
+  let suppressed = 0;
+  /** Drop what a maintainer already rejected, before anyone sees it. */
+  const keep = (candidates: Finding[]): Finding[] => {
+    const kept = candidates.filter((finding) => !dismissed.has(finding.fingerprint));
+    suppressed += candidates.length - kept.length;
+    return kept;
+  };
+
+  const findings: Finding[] = keep(store.readFindings());
   const summaries: { unitId: string; summary: string }[] = [];
   const settled = () =>
     store.current.units.filter((unit) => unit.status !== "pending" && unit.status !== "in_progress").length;
@@ -95,7 +113,7 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
     // highest-value findings — running it anyway is what makes a budget-stopped
     // report worth reading instead of merely truncated.
     if (budget.checkExhausted()) {
-      const rulesOnly = runRulesOnly(unit, { ...deps, snapshot, store });
+      const rulesOnly = keep(runRulesOnly(unit, { ...deps, snapshot, store, ruleContext }));
       store.completeUnit(unit.id, rulesOnly, { status: "skipped", skipReason: "budget" });
       findings.push(...rulesOnly);
       for (const finding of rulesOnly) emit({ type: "finding", finding });
@@ -113,7 +131,8 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
     emit({ type: "unit_start", unitId: unit.id });
     store.markUnit(unit.id, { status: "in_progress", attempts: state.attempts + 1 });
 
-    const unitFindings = await reviewOneUnit(unit, { ...deps, snapshot, budget, store });
+    const reviewed = await reviewOneUnit(unit, { ...deps, snapshot, budget, store, ruleContext });
+    const unitFindings = { ...reviewed, findings: keep(reviewed.findings) };
 
     findings.push(...unitFindings.findings);
     summaries.push({ unitId: unit.id, summary: unitFindings.summary });
@@ -147,23 +166,37 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
   }
 
   // --- Finish ------------------------------------------------------------
-  const graded = dedupe(findings);
+  const kept = dedupe(findings);
+
+  if (suppressed > 0) {
+    emit({
+      type: "notice",
+      level: "info",
+      text: `Withheld ${suppressed} finding(s) a maintainer dismissed on an earlier review.`,
+    });
+  }
+
   store.finish();
   persistSpend(store, budget);
 
-  return { findings: graded, store, snapshot, budget, resumed };
+  return { findings: kept, suppressed, store, snapshot, budget, resumed };
 }
 
 async function reviewOneUnit(
   unit: ReviewUnit,
-  deps: PipelineDeps & { snapshot: PrSnapshot; budget: BudgetManager; store: RunStore },
+  deps: PipelineDeps & {
+    snapshot: PrSnapshot;
+    budget: BudgetManager;
+    store: RunStore;
+    ruleContext: PrRuleContext;
+  },
 ): Promise<{ findings: Finding[]; summary: string; spendUsd: number; status: "done" | "failed" }> {
   const { config, redactor, store, budget, emit } = deps;
   const tracer = Tracer.forUnit(store.dirs.root, unit.id, redactor);
 
   // Deterministic pass first: its output is both a finding source and context
   // that stops the model from re-reporting what a regex already caught.
-  const ruleHits = redactHits(runRules(unit, config.lang), redactor);
+  const ruleHits = redactHits(runRules(unit, config.lang, deps.ruleContext), redactor);
   for (const hit of ruleHits) {
     tracer.write({ type: "rule_hit", ruleId: hit.ruleId, path: hit.path, line: hit.line });
   }
@@ -229,12 +262,12 @@ async function reviewOneUnit(
 /** The zero-cost half of a unit review, for when there is no budget left. */
 function runRulesOnly(
   unit: ReviewUnit,
-  deps: PipelineDeps & { snapshot: PrSnapshot; store: RunStore },
+  deps: PipelineDeps & { snapshot: PrSnapshot; store: RunStore; ruleContext: PrRuleContext },
 ): Finding[] {
   const tracer = Tracer.forUnit(deps.store.dirs.root, unit.id, deps.redactor);
   tracer.write({ type: "budget", kind: "hard_stop", detail: "rules-only pass; no model calls" });
 
-  const hits = redactHits(runRules(unit, deps.config.lang), deps.redactor);
+  const hits = redactHits(runRules(unit, deps.config.lang, deps.ruleContext), deps.redactor);
   for (const hit of hits) {
     tracer.write({ type: "rule_hit", ruleId: hit.ruleId, path: hit.path, line: hit.line });
   }

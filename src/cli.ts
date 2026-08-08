@@ -23,6 +23,7 @@ import {
 import { authStatus, terminalInteraction } from "./auth/login.js";
 import { FileCredentialStore } from "./auth/credential-store.js";
 import { parseBudgetLimit, serializeBudgetLimit } from "./budget/limit.js";
+import { DismissalStore } from "./memory/dismissals.js";
 import { parseTarget } from "./platform/adapter.js";
 import { createModelRegistry, executeRun, KNOWN_PROVIDERS, providerForLogin } from "./run.js";
 import { Tracer } from "./trace/tracer.js";
@@ -48,6 +49,8 @@ ${theme.strong("Setup")}
   code-review auth                    show which credentials are configured
   code-review login [provider]        sign in with a subscription (default: openai-codex)
   code-review logout <provider>       forget a stored credential
+  code-review dismissed <pr-url>      show what this repo's maintainers rejected
+  code-review undismiss <pr-url> <fp> raise a dismissed finding again
 
 ${theme.strong("Options")}
   --budget <amount>     e.g. 10, ¥10, $1.50, 800k tokens      (default ${serializeBudgetLimit(DEFAULT_CONFIG.budget.limit)})
@@ -114,6 +117,10 @@ async function main(argv: string[]): Promise<number> {
       return commandConfig(config);
     case "init":
       return commandInit(config);
+    case "dismissed":
+      return commandDismissed(rest[0]);
+    case "undismiss":
+      return commandUndismiss(rest[0], rest[1]);
     default:
       return commandReview(config, command as string, values);
   }
@@ -184,6 +191,12 @@ async function commandReview(
           `Posted ${outcome.posted.posted} comment(s)` +
             (outcome.posted.skippedAsDuplicate > 0
               ? `, skipped ${outcome.posted.skippedAsDuplicate} already present`
+              : "") +
+            (outcome.posted.skippedAsDismissed > 0
+              ? `, withheld ${outcome.posted.skippedAsDismissed} previously dismissed`
+              : "") +
+            (outcome.posted.newlyDismissed > 0
+              ? `, learned ${outcome.posted.newlyDismissed} new dismissal(s)`
               : "") +
             (outcome.posted.url ? ` → ${outcome.posted.url}` : "") +
             "\n",
@@ -328,6 +341,45 @@ function commandInit(config: Config): number {
       theme.dim("  Edit it, then check the result with:  code-review config\n"),
   );
   return 0;
+}
+
+/**
+ * Show what this repository's maintainers have rejected.
+ *
+ * Suppression that cannot be inspected is indistinguishable from a tool that
+ * quietly stopped working, so the memory is always visible and always undoable.
+ */
+function commandDismissed(url: string | undefined): number {
+  if (!url) throw new Error("Usage: code-review dismissed <pr-url>");
+  const memory = DismissalStore.forTarget(parseTarget(url));
+  const entries = [...memory.dismissed()];
+
+  if (entries.length === 0) {
+    process.stdout.write(theme.dim("Nothing has been dismissed for this repository.\n"));
+    return 0;
+  }
+  for (const fingerprint of entries) {
+    const record = memory.reasonFor(fingerprint);
+    process.stdout.write(
+      `${theme.accent(fingerprint)}  ${theme.dim(`${record?.how ?? "?"} · PR #${record?.pr ?? "?"} · ${record?.at?.slice(0, 10) ?? ""}`)}\n`,
+    );
+  }
+  process.stdout.write(
+    theme.dim(`\n${entries.length} withheld. Undo one with: code-review undismiss <pr-url> <fingerprint>\n`),
+  );
+  return 0;
+}
+
+function commandUndismiss(url: string | undefined, fingerprint: string | undefined): number {
+  if (!url || !fingerprint) throw new Error("Usage: code-review undismiss <pr-url> <fingerprint>");
+  const memory = DismissalStore.forTarget(parseTarget(url));
+  const ok = memory.forget(fingerprint);
+  process.stdout.write(
+    ok
+      ? `${theme.ok("✓")} ${fingerprint} will be raised again.\n`
+      : theme.warn(`${fingerprint} was not dismissed.\n`),
+  );
+  return ok ? 0 : 1;
 }
 
 function commandRuns(config: Config): number {

@@ -93,12 +93,22 @@ export class GitHubAdapter implements PlatformAdapter {
     const out: MarkerComment[] = [];
     const repo = `${target.apiBase}/repos/${target.owner}/${target.repo}`;
 
+    // Resolution lives only in GraphQL; REST cannot see it. A failure here
+    // leaves `resolved` undefined, which keeps findings alive rather than
+    // silently suppressing them.
+    const resolvedIds = await this.resolvedCommentIds(target).catch(() => undefined);
+
     const inline = await this.paginate<{ id: number; body: string }>(
       `${repo}/pulls/${target.number}/comments?per_page=100`,
     );
     for (const comment of inline) {
       const marker = parseMarker(comment.body ?? "");
-      if (marker.fingerprint || marker.isSummary) out.push({ id: comment.id, ...marker });
+      if (!marker.fingerprint && !marker.isSummary) continue;
+      out.push({
+        id: comment.id,
+        ...marker,
+        ...(resolvedIds ? { resolved: resolvedIds.has(comment.id) } : {}),
+      });
     }
 
     // The run summary lives on the issue timeline, not the review thread.
@@ -164,6 +174,49 @@ export class GitHubAdapter implements PlatformAdapter {
     }
 
     return { posted, demoted, url };
+  }
+
+  /**
+   * Review-comment ids whose thread the maintainer marked resolved.
+   *
+   * Resolution is a first-class "no" — stronger than silence and weaker than
+   * deletion — and GitHub exposes it only through GraphQL.
+   */
+  private async resolvedCommentIds(target: Target): Promise<Set<number>> {
+    const endpoint = target.apiBase.replace(/\/api\/v3$/, "/api/graphql").replace(
+      "https://api.github.com",
+      "https://api.github.com/graphql",
+    );
+    const query = `
+      query($owner:String!,$repo:String!,$number:Int!){
+        repository(owner:$owner,name:$repo){
+          pullRequest(number:$number){
+            reviewThreads(first:100){
+              nodes{ isResolved comments(first:50){ nodes{ databaseId } } }
+            }
+          }
+        }
+      }`;
+
+    const response = await this.fetchImpl(endpoint, {
+      method: "POST",
+      headers: this.headers("application/json"),
+      body: JSON.stringify({
+        query,
+        variables: { owner: target.owner, repo: target.repo, number: target.number },
+      }),
+    });
+    if (!response.ok) throw await HttpError.from(response, endpoint);
+
+    const payload = (await response.json()) as GraphQlThreads;
+    const ids = new Set<number>();
+    for (const thread of payload.data?.repository?.pullRequest?.reviewThreads?.nodes ?? []) {
+      if (!thread.isResolved) continue;
+      for (const comment of thread.comments?.nodes ?? []) {
+        if (typeof comment.databaseId === "number") ids.add(comment.databaseId);
+      }
+    }
+    return ids;
   }
 
   /** Replace the previous run's summary instead of stacking a new one. */
@@ -258,6 +311,16 @@ function truncate(text: string, max = 400): string {
 }
 
 export { findingMarker, SUMMARY_MARKER };
+
+interface GraphQlThreads {
+  data?: {
+    repository?: {
+      pullRequest?: {
+        reviewThreads?: { nodes?: { isResolved?: boolean; comments?: { nodes?: { databaseId?: number }[] } }[] };
+      };
+    };
+  };
+}
 
 interface GitHubPr {
   title?: string;

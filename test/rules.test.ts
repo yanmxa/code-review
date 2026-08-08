@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseUnifiedDiff } from "../src/platform/diff.js";
 import { Redactor } from "../src/security/redactor.js";
 import { planUnits } from "../src/engine/units.js";
-import { runRules } from "../src/engine/rules-engine.js";
+import { hasMatchingTestChange, isTestPath, runRules, stemOf } from "../src/engine/rules-engine.js";
 import type { ReviewUnit } from "../src/types.js";
 
 /** Build a one-file unit whose added lines are exactly `added`. */
@@ -165,5 +165,122 @@ describe("rules — scope", () => {
     expect(runRules(unit, "zh")[0]?.title).toMatch(/debugger/);
     expect(runRules(unit, "zh")[0]?.body).toMatch(/[一-龥]/);
     expect(runRules(unit, "en")[0]?.body).not.toMatch(/[一-龥]/);
+  });
+});
+
+describe("rules — missing test coverage", () => {
+  const logic = (n: number) => Array.from({ length: n }, (_, i) => `  const step${i} = compute(${i});`);
+
+  function idsWithContext(path: string, added: string[], changedPaths: string[]): string[] {
+    const unit = unitWith(path, added);
+    return runRules(unit, "en", { changedPaths }).map((hit) => hit.ruleId);
+  }
+
+  it("flags substantive logic that ships without a matching test change", () => {
+    // The most common human review comment, and fully deterministic.
+    const ids = idsWithContext("src/retry.ts", logic(10), ["src/retry.ts"]);
+    expect(ids).toContain("no-test-change");
+  });
+
+  it("stays quiet when the PR changes a test that names the file", () => {
+    for (const test of [
+      "src/retry.test.ts",
+      "src/__tests__/retry.ts",
+      "test/retry_test.go",
+      "tests/test_retry.py",
+      "spec/retry_spec.rb",
+    ]) {
+      const ids = idsWithContext("src/retry.ts", logic(10), ["src/retry.ts", test]);
+      expect(ids, `${test} should count as coverage`).not.toContain("no-test-change");
+    }
+  });
+
+  it("does not ask for tests for a trivial change", () => {
+    expect(idsWithContext("src/retry.ts", logic(3), ["src/retry.ts"])).not.toContain("no-test-change");
+  });
+
+  it("does not count imports or braces toward the threshold", () => {
+    const noise = [
+      'import { a } from "./a";',
+      'import { b } from "./b";',
+      "}",
+      ");",
+      "// a comment",
+      "",
+      'import { c } from "./c";',
+      "}",
+      ");",
+      "}",
+    ];
+    expect(idsWithContext("src/retry.ts", noise, ["src/retry.ts"])).not.toContain("no-test-change");
+  });
+
+  it("does not ask a test file to have tests", () => {
+    expect(idsWithContext("src/retry.test.ts", logic(20), ["src/retry.test.ts"])).not.toContain(
+      "no-test-change",
+    );
+  });
+
+  it("leaves declaration, config, and migration files alone", () => {
+    for (const path of [
+      "src/types.d.ts",
+      "src/types.ts",
+      "vite.config.ts",
+      "src/migrations/001_init.ts",
+      "README.md",
+      "package.json",
+    ]) {
+      expect(idsWithContext(path, logic(20), [path]), path).not.toContain("no-test-change");
+    }
+  });
+
+  it("does not fire at all without pull-request context", () => {
+    // A single file cannot know what else the change touched, so the rule must
+    // stay silent rather than guess.
+    const unit = unitWith("src/retry.ts", logic(20));
+    expect(runRules(unit, "en").map((h) => h.ruleId)).not.toContain("no-test-change");
+  });
+
+  it("anchors to the first substantive added line so the comment can be posted", () => {
+    const unit = unitWith("src/retry.ts", logic(10));
+    const hit = runRules(unit, "en", { changedPaths: ["src/retry.ts"] }).find(
+      (h) => h.ruleId === "no-test-change",
+    );
+    expect(hit?.line).toBeGreaterThan(0);
+    expect(hit?.severity).toBe("minor");
+  });
+});
+
+describe("test-path heuristics", () => {
+  it("recognises test paths across ecosystems", () => {
+    for (const path of [
+      "src/a.test.ts",
+      "src/a.spec.tsx",
+      "test/a.ts",
+      "tests/a.js",
+      "src/__tests__/a.ts",
+      "pkg/a_test.go",
+      "tests/test_a.py",
+      "spec/a_spec.rb",
+      "src/AThing Tests.java".replace(" ", ""),
+    ]) {
+      expect(isTestPath(path), path).toBe(true);
+    }
+  });
+
+  it("does not mistake source for test", () => {
+    for (const path of ["src/a.ts", "src/latest.ts", "src/contest.js", "lib/protest.py"]) {
+      expect(isTestPath(path), path).toBe(false);
+    }
+  });
+
+  it("reduces a path to the stem a test would name", () => {
+    expect(stemOf("src/cache/store.ts")).toBe("store");
+    expect(stemOf("src/cache/store.test.ts")).toBe("store");
+    expect(stemOf("tests/test_store.py")).toBe("store");
+  });
+
+  it("refuses to guess on a stem too short to be distinctive", () => {
+    expect(hasMatchingTestChange("src/a.ts", [])).toBe(true);
   });
 });
