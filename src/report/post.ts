@@ -56,6 +56,27 @@ export async function postFindings(options: PostOptions): Promise<PostSummary> {
     for (const comment of present) {
       if (comment.fingerprint) alreadyPosted.add(comment.fingerprint);
     }
+    // Claim what is already on the pull request before comparing against it.
+    // Every one of these carries our own marker, so the pull request — not the
+    // local file — is the durable record of what was said. Without this step a
+    // review posted from another machine, or before the memory was cleared, is
+    // invisible: deleting it teaches nothing, because nothing remembers it was
+    // ever there.
+    // Titled from this run's findings where the fingerprint still matches, so
+    // a record claimed from the host reads as a sentence rather than a hash.
+    const byFingerprint = new Map(findings.map((finding) => [finding.fingerprint, finding]));
+    options.memory?.recordPosted(
+      present
+        .filter((comment) => comment.fingerprint)
+        .map((comment) => {
+          const finding = byFingerprint.get(comment.fingerprint!);
+          return {
+            fingerprint: comment.fingerprint!,
+            ...(finding ? { title: finding.title, where: `${finding.path}:${finding.line}` } : {}),
+          };
+        }),
+      snapshot.target.number,
+    );
     // Anything we posted that is now gone, or whose thread was resolved, is a
     // maintainer saying no. Learn it here, before deciding what to post.
     newlyDismissed = options.memory?.reconcile(present, snapshot.target.number).length ?? 0;
@@ -72,6 +93,7 @@ export async function postFindings(options: PostOptions): Promise<PostSummary> {
 
   const comments: InlineComment[] = [];
   const postedFingerprints: string[] = [];
+  const postedRecords: { fingerprint: string; title: string; where: string }[] = [];
   let skippedAsDuplicate = 0;
   let skippedAsDismissed = 0;
   let unanchorable = 0;
@@ -104,6 +126,11 @@ export async function postFindings(options: PostOptions): Promise<PostSummary> {
     }
     comments.push(comment);
     postedFingerprints.push(finding.fingerprint);
+    postedRecords.push({
+      fingerprint: finding.fingerprint,
+      title: finding.title,
+      where: `${finding.path}:${finding.line}`,
+    });
   }
 
   const summary = renderPostSummary(
@@ -125,7 +152,7 @@ export async function postFindings(options: PostOptions): Promise<PostSummary> {
   const result = await adapter.postReview(snapshot.target, { summary, comments });
   // Recorded only after the host accepted them, so a failed post is retried.
   store.addPosted(postedFingerprints);
-  options.memory?.recordPosted(postedFingerprints, snapshot.target.number);
+  options.memory?.recordPosted(postedRecords, snapshot.target.number);
 
   return {
     posted: result.posted,

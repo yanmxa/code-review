@@ -469,8 +469,16 @@ function commandDismissed(url: string | undefined): number {
   }
   for (const fingerprint of entries) {
     const record = memory.reasonFor(fingerprint);
+    // The title first, because it is the only part anyone can act on. The
+    // fingerprint is what `undismiss` takes, so it stays, but a column of
+    // hashes was a list of decisions nobody could read.
     process.stdout.write(
-      `${theme.accent(fingerprint)}  ${theme.dim(`${record?.how ?? "?"} · PR #${record?.pr ?? "?"} · ${record?.at?.slice(0, 10) ?? ""}`)}\n`,
+      `${theme.strong(record?.title ?? theme.dim("(recorded before titles were kept)"))}\n` +
+        `  ${theme.accent(fingerprint)}  ${theme.dim(
+          [record?.where, record?.how, `PR #${record?.pr ?? "?"}`, record?.at?.slice(0, 10)]
+            .filter(Boolean)
+            .join(" · "),
+        )}\n`,
     );
   }
   process.stdout.write(

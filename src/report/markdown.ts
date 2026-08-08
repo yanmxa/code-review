@@ -137,8 +137,8 @@ export function renderFinding(finding: Finding, lang: Language): string {
   // not already settled the question — beside a compiler diagnostic it would
   // read as doubt about a fact.
   const certainty =
-    finding.confidence === "reference" && finding.certainty && finding.certainty !== "certain"
-      ? ` · ${t("certaintyPrefix", lang)}${certaintyLabel(finding.certainty, lang)}`
+    finding.confidence === "reference"
+      ? ` · ${t("certaintyPrefix", lang)}${certaintyLabel(finding.certainty ?? "unsure", lang)}`
       : "";
   parts.push(
     `**${severityLabel(finding.severity, lang)}** · ${confidenceLabel(finding.confidence, lang)}${certainty}`,
@@ -245,8 +245,16 @@ function renderAppendix(input: ReportInput): string {
  */
 export function renderComment(finding: Finding, lang: Language, marker: string): string {
   const parts: string[] = [];
+  // The certainty rides along on the reference tier, where the tier alone does
+  // not say how much weight to give one comment against the next. It is the
+  // line a reviewer reads on the pull request itself, and leaving it to the
+  // report meant the only people who saw it were the ones who ran the tool.
+  const certainty =
+    finding.confidence === "reference"
+      ? ` · ${t("certaintyPrefix", lang)}${certaintyLabel(finding.certainty ?? "unsure", lang)}`
+      : "";
   parts.push(
-    `${tierGlyph(finding.confidence)} **${escapeMd(finding.title)}** · ${severityLabel(finding.severity, lang)} · ${confidenceLabel(finding.confidence, lang)}`,
+    `${tierGlyph(finding.confidence)} **${escapeMd(finding.title)}** · ${severityLabel(finding.severity, lang)} · ${confidenceLabel(finding.confidence, lang)}${certainty}`,
   );
   parts.push(finding.body);
 

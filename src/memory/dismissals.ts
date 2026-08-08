@@ -9,6 +9,16 @@ export type DismissalReason = "deleted" | "resolved";
 export interface PostedRecord {
   pr: number;
   at: string;
+  /**
+   * What the comment said, so the record can be read by a person.
+   *
+   * A fingerprint identifies a finding but describes nothing, and `code-review
+   * dismissed` printed a column of hashes — technically the list of decisions,
+   * useless for deciding whether to undo one. Optional because memories written
+   * by older versions have no title and are still perfectly valid.
+   */
+  title?: string;
+  where?: string;
 }
 
 export interface DismissalRecord extends PostedRecord {
@@ -59,10 +69,19 @@ export class DismissalStore {
     return new Set(Object.keys(this.memory.posted));
   }
 
-  recordPosted(fingerprints: string[], pr: number): void {
+  recordPosted(posted: { fingerprint: string; title?: string; where?: string }[], pr: number): void {
     const at = new Date().toISOString();
-    for (const fingerprint of fingerprints) {
-      this.memory.posted[fingerprint] = { pr, at };
+    for (const entry of posted) {
+      // A record already here knows more than a bare claim from the host does,
+      // so a title once learned is never overwritten with nothing.
+      const known = this.memory.posted[entry.fingerprint];
+      this.memory.posted[entry.fingerprint] = {
+        ...known,
+        pr,
+        at: known?.at ?? at,
+        ...(entry.title ? { title: entry.title } : {}),
+        ...(entry.where ? { where: entry.where } : {}),
+      };
     }
     this.save();
   }
@@ -95,7 +114,15 @@ export class DismissalStore {
           : undefined;
       if (!how) continue;
 
-      const entry: DismissalRecord = { pr: record.pr || pr, at, how };
+      // Carried over from the posting, not re-derived: by the time a comment
+      // is gone there is nothing left to read its title off.
+      const entry: DismissalRecord = {
+        pr: record.pr || pr,
+        at,
+        how,
+        ...(record.title ? { title: record.title } : {}),
+        ...(record.where ? { where: record.where } : {}),
+      };
       this.memory.dismissed[fingerprint] = entry;
       newly.push(entry);
     }
