@@ -8,13 +8,6 @@ export type Language = "zh" | "en";
 
 export interface Config {
   budget: BudgetConfig;
-  models: {
-    primary: ModelRef;
-    /** Cheap model for the pre-pass that orders and prunes the file list. */
-    triage: ModelRef;
-    /** Model used by the optional --verify refutation pass. */
-    verify: ModelRef;
-  };
   /** Per-tool enable/disable, keyed by ToolSpec.meta.id. */
   tools: Record<string, boolean>;
   /** Project-specific deterministic checks, layered over the built-ins. */
@@ -98,11 +91,6 @@ export const DEFAULT_CONFIG: Config = {
       { provider: "openai", id: "gpt-5.4-nano" },
     ],
   },
-  models: {
-    primary: { provider: "openai", id: "gpt-5.4" },
-    triage: { provider: "openai", id: "gpt-5.4-nano" },
-    verify: { provider: "openai", id: "gpt-5.4-mini" },
-  },
   tools: {},
   rules: { disabled: [], severity: {}, custom: [] },
   review: { ignore: [] },
@@ -119,11 +107,10 @@ export const DEFAULT_CONFIG: Config = {
 export type ConfigOverrides = {
   /** Loose on disk: older keys are migrated by {@link migrateBudget}. */
   budget?: Partial<BudgetConfig> | Record<string, unknown>;
-  models?: Partial<Config["models"]>;
   tools?: Record<string, boolean>;
   rules?: Partial<RulesConfig>;
   review?: Partial<ReviewConfig>;
-} & Partial<Omit<Config, "budget" | "models" | "tools" | "rules" | "review">>;
+} & Partial<Omit<Config, "budget" | "tools" | "rules" | "review">>;
 
 /**
  * Merge layers in precedence order: defaults < user config < project config <
@@ -133,13 +120,12 @@ export type ConfigOverrides = {
 export function resolveConfig(...layers: ConfigOverrides[]): Config {
   let config: Config = structuredClone(DEFAULT_CONFIG);
   for (const layer of layers) {
-    const { budget, models, tools, rules, review, ...rest } = layer;
+    const { budget, tools, rules, review, ...rest } = layer;
     const migrated = budget ? migrateBudget(budget as Record<string, unknown>) : {};
     config = {
       ...config,
       ...stripUndefined(rest),
       budget: { ...config.budget, ...stripUndefined(migrated) },
-      models: { ...config.models, ...stripUndefined(models ?? {}) },
       tools: { ...config.tools, ...(tools ?? {}) },
       rules: {
         disabled: [...config.rules.disabled, ...(rules?.disabled ?? [])],
@@ -251,6 +237,19 @@ export function formatModelRef(ref: ModelRef): string {
   return `${ref.provider}/${ref.id}`;
 }
 
+/**
+ * The model a run starts on.
+ *
+ * There is exactly one place this is written down — the head of the ladder.
+ * A separate `primary` field said the same thing a second time, and two
+ * statements of one fact can disagree: a config naming one model there and a
+ * different one at the head of the ladder would run the second while pricing
+ * and subscription conversion used the first.
+ */
+export function primaryModel(config: Config): ModelRef {
+  return config.budget.models[0]!;
+}
+
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ConfigOverrides {
   const overrides: ConfigOverrides = {};
   const budget: Partial<BudgetConfig> = {};
@@ -258,7 +257,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ConfigOverr
   else if (env.CODE_REVIEW_BUDGET_CNY) budget.limit = { amount: Number(env.CODE_REVIEW_BUDGET_CNY), unit: "CNY" };
   if (env.CODE_REVIEW_USD_CNY) budget.usdToCny = Number(env.CODE_REVIEW_USD_CNY);
   if (Object.keys(budget).length > 0) overrides.budget = budget;
-  if (env.CODE_REVIEW_MODEL) overrides.models = { primary: parseModelRef(env.CODE_REVIEW_MODEL) };
+  if (env.CODE_REVIEW_MODEL) overrides.budget = { ...overrides.budget, models: [parseModelRef(env.CODE_REVIEW_MODEL)] };
   if (env.CODE_REVIEW_LANG === "zh" || env.CODE_REVIEW_LANG === "en") overrides.lang = env.CODE_REVIEW_LANG;
   return overrides;
 }

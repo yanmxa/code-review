@@ -1,7 +1,7 @@
 import type { Models } from "@earendil-works/pi-ai";
 import { BudgetManager } from "../budget/budget.js";
 import { hashDiff, RunStore } from "../checkpoint/store.js";
-import type { Config } from "../config.js";
+import { type Config, primaryModel } from "../config.js";
 import type { CheckSummary, PlatformAdapter } from "../platform/adapter.js";
 import type { Redactor } from "../security/redactor.js";
 import { selectTools } from "../tools/index.js";
@@ -337,7 +337,7 @@ function warnIfBudgetLooksTight(
   config: Config,
   emit: RunEventSink,
 ): void {
-  const primary = models.getModel(config.models.primary.provider, config.models.primary.id);
+  const primary = models.getModel(primaryModel(config).provider, primaryModel(config).id);
   if (!primary) return;
 
   const inputTokens = units.reduce((sum, unit) => sum + estimateTokens(unit.patch) + 900, 0);

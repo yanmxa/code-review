@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { ensureProxySupport } from "./net/proxy.js";
@@ -45,8 +46,8 @@ ${theme.strong("Results")}
   code-review trace <run-id> <unit>   print a unit's full trace
 
 ${theme.strong("Setup")}
-  code-review config                  show the configuration a run would use
-  code-review init                    write review.config.json to edit
+  code-review config [--edit]         show the configuration a run would use
+  code-review init [-y]               create review.config.json, asking what matters
   code-review auth                    show which credentials are configured
   code-review login [provider]        sign in with a subscription (default: openai-codex)
   code-review logout <provider>       forget a stored credential
@@ -91,6 +92,8 @@ async function main(argv: string[]): Promise<number> {
       "no-tui": { type: "boolean" },
       verbose: { type: "boolean" },
       "fail-on": { type: "string" },
+      yes: { type: "boolean", short: "y" },
+      edit: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -117,9 +120,9 @@ async function main(argv: string[]): Promise<number> {
     case "auth":
       return commandAuth();
     case "config":
-      return commandConfig(config);
+      return values.edit === true ? commandEditConfig() : commandConfig(config);
     case "init":
-      return commandInit(config);
+      return commandInit(config, values.yes === true);
     case "dismissed":
       return commandDismissed(rest[0]);
     case "undismiss":
@@ -137,11 +140,9 @@ function buildConfig(values: Record<string, unknown>): Config {
     flags.budget = { limit: parseBudgetLimit(values.budget) };
   }
   if (typeof values.model === "string") {
-    const primary = parseModelRef(values.model);
     // A hand-picked model collapses the ladder: silently downgrading to a
     // different family than the user asked for would be worse than overrunning.
-    flags.models = { primary };
-    flags.budget = { ...(flags.budget ?? {}), models: [primary] };
+    flags.budget = { ...(flags.budget ?? {}), models: [parseModelRef(values.model)] };
   }
   if (typeof values.prompt === "string" && values.prompt.trim()) {
     flags.review = { prompt: values.prompt.trim() };
@@ -345,30 +346,100 @@ function commandConfig(config: Config): number {
   return 0;
 }
 
-/** Write a starting config next to the project, so the defaults are editable. */
-function commandInit(config: Config): number {
+/**
+ * Write a starting config by asking, and record only what differs.
+ *
+ * The previous version dumped every default into the file. A config that
+ * restates the defaults is worse than no config: a reader cannot tell what the
+ * project chose from what nobody got round to deleting. Four questions produce
+ * three lines, and every line in the file means something.
+ */
+async function commandInit(config: Config, assumeYes: boolean): Promise<number> {
   const path = projectConfigPath();
   if (existsSync(path)) {
     process.stdout.write(theme.warn(`${path} already exists — leaving it alone.\n`));
     return 1;
   }
-  const starter = {
-    budget: {
-      limit: serializeBudgetLimit(config.budget.limit),
-      usdToCny: config.budget.usdToCny,
-      models: config.budget.models.map(formatModelRef),
-    },
-    models: config.models,
-    tools: { ts_syntax_check: true },
-    lang: config.lang,
-    maxTurnsPerUnit: config.maxTurnsPerUnit,
-    fileContextLines: config.fileContextLines,
-  };
-  writeFileSync(path, `${JSON.stringify(starter, null, 2)}\n`, "utf8");
+
+  const chosen: ConfigOverrides = {};
+
+  const interactive = !assumeYes && process.stdin.isTTY === true;
+  if (!interactive && !assumeYes) {
+    process.stdout.write(
+      theme.dim("Not a terminal — writing an empty config. Use -y to silence this, or run it interactively.\n"),
+    );
+  }
+
+  if (interactive) {
+    process.stdout.write(`${theme.dim("Enter to accept the default in brackets.\n\n")}`);
+
+    const budget = await askLine("Budget per review", serializeBudgetLimit(DEFAULT_CONFIG.budget.limit));
+    if (budget !== serializeBudgetLimit(DEFAULT_CONFIG.budget.limit)) {
+      // Written back as the string a person would type, not the parsed shape.
+      chosen.budget = { limit: serializeBudgetLimit(parseBudgetLimit(budget)) };
+    }
+
+    const model = await askLine("Model", formatModelRef(DEFAULT_CONFIG.budget.models[0]!));
+    if (model !== formatModelRef(DEFAULT_CONFIG.budget.models[0]!)) {
+      // Naming one model means wanting that model, so the ladder collapses to it.
+      chosen.budget = { ...(chosen.budget ?? {}), models: [model] };
+    }
+
+    const lang = await askLine("Language for findings (zh/en)", DEFAULT_CONFIG.lang);
+    if (lang !== DEFAULT_CONFIG.lang && (lang === "zh" || lang === "en")) chosen.lang = lang;
+
+    const ignore = await askLine("Topics the reviewer should not raise (comma-separated)", "");
+    const topics = ignore.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
+    if (topics.length > 0) chosen.review = { ignore: topics };
+  }
+
+  // An empty object when nothing was chosen. Writing the defaults back would
+  // reintroduce exactly the problem this command exists to avoid: a file whose
+  // reader cannot tell a decision from a leftover.
+  writeFileSync(path, `${JSON.stringify(chosen, null, 2)}\n`, "utf8");
+
+  const body = JSON.stringify(chosen, null, 2)
+    .split("\n")
+    .map((line) => `  ${theme.dim(line)}`)
+    .join("\n");
+
   process.stdout.write(
-    `${theme.ok("✓")} Wrote ${theme.accent(path)}\n` +
-      theme.dim("  Edit it, then check the result with:  code-review config\n"),
+    `\n${theme.ok("✓")} ${theme.accent(path)}\n\n${body}\n\n` +
+      theme.dim(
+        Object.keys(chosen).length > 0
+          ? "  Only what differs from the defaults is written.\n"
+          : "  Nothing differs from the defaults yet — edit the file to change something.\n",
+      ) +
+      theme.dim("  Every field: docs/configuration.zh.md · check the result: code-review config\n"),
   );
+  return 0;
+}
+
+async function askLine(question: string, fallback: string): Promise<string> {
+  const { createInterface } = await import("node:readline/promises");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const hint = fallback ? theme.dim(` [${fallback}]`) : theme.dim(" [skip]");
+    const answer = (await rl.question(`  ${question}${hint} › `)).trim();
+    return answer || fallback;
+  } finally {
+    rl.close();
+  }
+}
+
+/** Open the project config in $EDITOR, creating it if it does not exist yet. */
+function commandEditConfig(): number {
+  const path = projectConfigPath();
+  if (!existsSync(path)) writeFileSync(path, "{\n}\n", "utf8");
+  const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+  const result = spawnSync(editor, [path], { stdio: "inherit" });
+  if (result.status !== 0) {
+    process.stderr.write(theme.warn(`${editor} exited with ${result.status}\n`));
+    return 1;
+  }
+  // Re-resolving proves the file still parses before the user discovers it mid-run.
+  resolveConfig(loadConfigFile(path));
+  process.stdout.write(`${theme.ok("✓")} ${theme.dim(`${path} parses`)}\n`);
   return 0;
 }
 

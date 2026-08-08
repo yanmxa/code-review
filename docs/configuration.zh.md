@@ -15,8 +15,8 @@ code-review runs                    # 列出所有断点
 code-review triage <run-id>         # 重新打开某次运行的结果浏览器
 code-review trace <run-id> <unit>   # 打印某个单元的完整 trace
 
-code-review config                  # 查看这次运行会用的配置
-code-review init                    # 生成 review.config.json 供编辑
+code-review config [--edit]         # 查看这次运行会用的配置
+code-review init [-y]               # 交互式生成 review.config.json
 code-review auth                    # 查看当前配置了哪些凭据
 code-review login [provider]        # 用订阅登录（默认 openai-codex）
 code-review logout <provider>       # 删除已存的凭据
@@ -52,7 +52,27 @@ code-review undismiss <pr-url> <fp> # 撤销某一条否决
 内置默认  →  ~/.config/code-review/config.json  →  ./review.config.json  →  环境变量  →  命令行
 ```
 
-`code-review init` 生成一份可编辑的，`code-review config` 打印合并后的完整结果。
+`code-review init` 问几个问题，**只写下和默认值不同的部分**——一份全是默认值的配置文件，读的人分不清哪些是刻意选的、哪些只是没删。
+
+```
+$ code-review init
+
+  Budget per review [¥10.00] › ¥20
+  Model [openai/gpt-5.4] › ↵
+  Language for findings (zh/en) [zh] › ↵
+  Topics the reviewer should not raise (comma-separated) [skip] › 命名风格
+
+✓ review.config.json
+
+  {
+    "budget": { "limit": "¥20.00" },
+    "review": { "ignore": ["命名风格"] }
+  }
+```
+
+`code-review config` 打印合并后的完整结果，`--edit` 用 `$EDITOR` 打开并在退出时校验能否解析。
+
+下面是全部可用字段（不必都写）：
 
 ```jsonc
 {
@@ -87,8 +107,8 @@ code-review undismiss <pr-url> <fp> # 撤销某一条否决
   },
 
   "lang": "zh",
-  "maxTurnsPerUnit": 6,
-  "fileContextLines": 2000
+  "maxTurnsPerUnit": 6,          // 单个文件最多几轮 agent 循环
+  "fileContextLines": 2000       // get_file 一次最多返回多少行
 }
 ```
 
@@ -98,7 +118,7 @@ code-review undismiss <pr-url> <fp> # 撤销某一条否决
 | --- | --- |
 | `limit` | 带单位的上限。`"¥10"` / `"$1.50"` / `"800k tokens"`。用 USD 可以完全绕开汇率 |
 | `usdToCny` | 汇率，仅当 `limit` 用人民币时参与计算 |
-| `models` | 模型优先级列表，**没有阈值** |
+| `models` | 模型优先级列表，**没有阈值**。第一个就是起始模型 |
 
 **没有阈值是刻意的。** 降级看的是「已花 ÷ 已完成比例」得出的预测，而不是已经花了多少——花掉一半预算跑完一半文件是正好在轨，不该触发任何动作。预计超支就降一档，降到底还超就收缩上下文，真的花完才停。展开见[设计文档 §4](design.zh.md)。
 

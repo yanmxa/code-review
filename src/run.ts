@@ -1,6 +1,6 @@
 import { createModels, type Models, type MutableModels } from "@earendil-works/pi-ai";
 import type { RunStore } from "./checkpoint/store.js";
-import type { Config } from "./config.js";
+import { type Config, primaryModel } from "./config.js";
 import { runReview } from "./engine/pipeline.js";
 import { GitHubAdapter, resolveGitHubToken } from "./platform/github.js";
 import { GitLabAdapter, resolveGitLabToken } from "./platform/gitlab.js";
@@ -142,9 +142,9 @@ async function resolveBudgetUnit(
 ): Promise<Config["budget"]> {
   const budget = config.budget;
   if (budget.limit.unit === "tokens") return budget;
-  if (!(await isSubscriptionAuth(models, config.models.primary.provider))) return budget;
+  if (!(await isSubscriptionAuth(models, primaryModel(config).provider))) return budget;
 
-  const primary = models.getModel(config.models.primary.provider, config.models.primary.id);
+  const primary = models.getModel(primaryModel(config).provider, primaryModel(config).id);
   if (!primary) return budget;
 
   const usd = budget.limit.unit === "USD" ? budget.limit.amount : budget.limit.amount / budget.usdToCny;
