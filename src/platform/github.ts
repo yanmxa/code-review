@@ -347,13 +347,44 @@ function nextLink(header: string | null): string | undefined {
   return undefined;
 }
 
+/**
+ * What went wrong, in the terms the person at the terminal is in.
+ *
+ * The default was the status, the API URL, and the response body — so mistyping
+ * a pull request number produced a line of GitHub's JSON, including a link to
+ * the REST documentation for an endpoint the user never knowingly called. The
+ * statuses worth naming are the ones a person actually hits; anything else
+ * still shows the raw body, because an unexplained failure is better than a
+ * confidently wrong explanation.
+ */
+function explain(status: number, url: string, body: string): string {
+  const target = url.replace("https://api.github.com/repos/", "").replace("/pulls/", " #");
+  switch (status) {
+    case 401:
+      return `GitHub rejected the credentials (401). Check GITHUB_TOKEN, or run \`gh auth login\`.`;
+    case 403:
+      return /rate limit/i.test(body)
+        ? `GitHub rate limit reached (403). Wait, or use a token with a higher limit.`
+        : `GitHub refused the request (403) for ${target}. The token may lack access to this repository.`;
+    case 404:
+      return (
+        `Not found on GitHub (404): ${target}\n` +
+        `Check the number, and that the token can see this repository — a private repo reads as 404 without access.`
+      );
+    case 422:
+      return `GitHub rejected the request (422) for ${target}: ${truncate(body)}`;
+    default:
+      return `HTTP ${status} for ${url}${body ? `: ${truncate(body)}` : ""}`;
+  }
+}
+
 export class HttpError extends Error {
   constructor(
     readonly status: number,
     readonly url: string,
     readonly body: string,
   ) {
-    super(`HTTP ${status} for ${url}${body ? `: ${truncate(body)}` : ""}`);
+    super(explain(status, url, body));
     this.name = "HttpError";
   }
 

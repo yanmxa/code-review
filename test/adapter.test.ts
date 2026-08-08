@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findingMarker, parseMarker, parseTarget, SUMMARY_MARKER } from "../src/platform/adapter.js";
+import { HttpError } from "../src/platform/github.js";
 
 describe("parseTarget", () => {
   it("parses a github.com PR URL", () => {
@@ -63,3 +64,32 @@ describe("comment markers", () => {
     expect(parseMarker("looks good to me")).toEqual({ isSummary: false });
   });
 });
+
+describe("what a failed request tells the person who ran it", () => {
+  it("names the pull request instead of quoting GitHub's JSON", () => {
+    // Mistyping a number used to print the REST response body, including a link
+    // to documentation for an endpoint the user never knowingly called.
+    const error = new HttpError(
+      404,
+      "https://api.github.com/repos/acme/widgets/pulls/99999",
+      '{"message":"Not Found","documentation_url":"https://docs.github.com/rest"}',
+    );
+    expect(error.message).toContain("acme/widgets #99999");
+    expect(error.message).not.toContain("documentation_url");
+  });
+
+  it("says a private repository is indistinguishable from a missing one", () => {
+    const error = new HttpError(404, "https://api.github.com/repos/acme/secret/pulls/1", "");
+    expect(error.message).toMatch(/private/i);
+  });
+
+  it("points at the credentials on 401", () => {
+    const error = new HttpError(401, "https://api.github.com/repos/a/b/pulls/1", "");
+    expect(error.message).toMatch(/GITHUB_TOKEN|gh auth login/);
+  });
+
+  it("keeps the raw body for a status it has nothing better to say about", () => {
+    const error = new HttpError(500, "https://api.github.com/x", "upstream exploded");
+    expect(error.message).toContain("upstream exploded");
+  });
+})
