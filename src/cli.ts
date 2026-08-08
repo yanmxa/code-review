@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { existsSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { ensureProxySupport } from "./net/proxy.js";
 
@@ -33,10 +34,19 @@ const USAGE = `
 ${theme.accent("code-review")} — code review agent for GitHub / GitLab pull requests
 
 ${theme.strong("Usage")}
-  code-review <pr-url> [options]
+  code-review <pr-url> [options]      review a pull request
+
+${theme.strong("Results")}
   code-review runs                    list checkpointed runs
   code-review triage <run-id>         reopen the findings browser for a finished run
-  code-review trace <run-id> <unit>   print a unit's trace
+  code-review trace <run-id> <unit>   print a unit's full trace
+
+${theme.strong("Setup")}
+  code-review config                  show the configuration a run would use
+  code-review init                    write review.config.json to edit
+  code-review auth                    show which credentials are configured
+  code-review login [provider]        sign in with a subscription (default: openai-codex)
+  code-review logout <provider>       forget a stored credential
 
 ${theme.strong("Options")}
   --budget <cny>        total budget for this review          (default ${DEFAULT_CONFIG.budget.totalCny})
@@ -99,6 +109,10 @@ async function main(argv: string[]): Promise<number> {
       return commandLogout(rest[0]);
     case "auth":
       return commandAuth();
+    case "config":
+      return commandConfig(config);
+    case "init":
+      return commandInit(config);
     default:
       return commandReview(config, command as string, values);
   }
@@ -244,6 +258,79 @@ async function commandAuth(): Promise<number> {
 
   const github = process.env.GITHUB_TOKEN ? "GITHUB_TOKEN" : "gh auth token";
   process.stdout.write(`${theme.accent("github".padEnd(16))} ${theme.dim(github)}\n`);
+  return 0;
+}
+
+/**
+ * Print the configuration a run would actually use.
+ *
+ * Config comes from four layers, and "which model is it going to use, and when
+ * does it downgrade" is the first question when a run costs more or less than
+ * expected. Answering it without starting a run is worth a command.
+ */
+function commandConfig(config: Config): number {
+  const w = (line: string) => process.stdout.write(`${line}\n`);
+
+  w(theme.strong("Sources") + theme.dim("  (later layers win)"));
+  for (const path of [userConfigPath(), projectConfigPath()]) {
+    const present = existsSync(path);
+    w(`  ${present ? theme.ok("✓") : theme.dim("·")} ${present ? path : theme.dim(path)}`);
+  }
+  const envKeys = Object.keys(process.env).filter((key) => key.startsWith("CODE_REVIEW_"));
+  w(`  ${envKeys.length > 0 ? theme.ok("✓") : theme.dim("·")} environment${envKeys.length > 0 ? ` ${theme.dim(envKeys.join(", "))}` : theme.dim(" (no CODE_REVIEW_* set)")}`);
+
+  w("");
+  w(theme.strong("Budget"));
+  w(`  total           ${theme.accent(`¥${config.budget.totalCny}`)} ${theme.dim(`@ ${config.budget.usdToCny} CNY/USD`)}`);
+  w(`  squeeze at      ${theme.dim(`${Math.round(config.budget.squeezeAtFraction * 100)}% — smaller file windows`)}`);
+  w(`  hard stop at    ${theme.dim(`${Math.round(config.budget.hardStopAtFraction * 100)}% — rules-only for the rest`)}`);
+
+  w("");
+  w(theme.strong("Model ladder") + theme.dim("  (switches as the budget is consumed)"));
+  for (const step of config.budget.ladder) {
+    const at = step.atFraction === 0 ? "start" : `${Math.round(step.atFraction * 100)}%`;
+    w(`  ${theme.dim(at.padStart(6))}  ${theme.model(formatModelRef(step.model))}`);
+  }
+
+  w("");
+  w(theme.strong("Other"));
+  w(`  language        ${theme.accent(config.lang)}`);
+  w(`  max turns/file  ${theme.accent(String(config.maxTurnsPerUnit))}`);
+  w(`  file context    ${theme.accent(String(config.fileContextLines))} ${theme.dim(`lines (${config.fileContextLinesSqueezed} when squeezed)`)}`);
+  w(`  split files at  ${theme.accent(String(config.maxUnitDiffLines))} ${theme.dim("diff lines")}`);
+  w(`  checkpoints     ${theme.dim(config.runDir)}`);
+
+  const disabled = Object.entries(config.tools).filter(([, on]) => !on).map(([id]) => id);
+  w(`  tools           ${disabled.length === 0 ? theme.dim("all enabled") : theme.warn(`disabled: ${disabled.join(", ")}`)}`);
+  return 0;
+}
+
+/** Write a starting config next to the project, so the defaults are editable. */
+function commandInit(config: Config): number {
+  const path = projectConfigPath();
+  if (existsSync(path)) {
+    process.stdout.write(theme.warn(`${path} already exists — leaving it alone.\n`));
+    return 1;
+  }
+  const starter = {
+    budget: {
+      totalCny: config.budget.totalCny,
+      usdToCny: config.budget.usdToCny,
+      ladder: config.budget.ladder,
+      squeezeAtFraction: config.budget.squeezeAtFraction,
+      hardStopAtFraction: config.budget.hardStopAtFraction,
+    },
+    models: config.models,
+    tools: { ts_syntax_check: true },
+    lang: config.lang,
+    maxTurnsPerUnit: config.maxTurnsPerUnit,
+    fileContextLines: config.fileContextLines,
+  };
+  writeFileSync(path, `${JSON.stringify(starter, null, 2)}\n`, "utf8");
+  process.stdout.write(
+    `${theme.ok("✓")} Wrote ${theme.accent(path)}\n` +
+      theme.dim("  Edit it, then check the result with:  code-review config\n"),
+  );
   return 0;
 }
 
