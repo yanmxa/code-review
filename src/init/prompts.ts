@@ -93,34 +93,53 @@ export function modelChoices(candidates: ModelChoice[], defaultRef: ModelRef, li
 }
 
 /**
- * Cheaper models the run can fall back to, preferring the same family.
+ * The rungs to tick by default: cheaper members of the same family, or nothing.
  *
- * Staying within a family means the prompt behaves the same way at each rung —
- * only the price changes. Falling across families would alter the review's
- * character partway through a run for reasons the user never asked for.
+ * Staying within a family means the prompt behaves the same way at each rung
+ * and only the price changes — that is what makes a ladder a ladder rather than
+ * a change of reviewer halfway through a run.
+ *
+ * When a family has no cheaper sibling this suggests *nothing*, which is a
+ * change from picking the two next-cheapest. Those were routinely a different
+ * family at nearly the same price — `gpt-5.2` proposed `gpt-5` and `gpt-5.1`,
+ * both $1.25 against its $1.75, so the "downgrade" changed the reviewer to save
+ * a third. Every candidate is one keypress away in the list; guessing on the
+ * user's behalf is not worth doing badly.
  */
 export function suggestLadder(primary: ModelRef, candidates: ModelChoice[]): ModelRef[] {
   const family = primary.id.replace(/-(mini|nano|pro|turbo|flash|lite|spark|high(speed)?)$/, "");
   // Drawn from every candidate, not the shortened picker list: the cheaper
   // members of a family are exactly the rungs wanted, and sampling for display
   // routinely leaves them out.
-  const primaryCost = candidates.find((c) => c.ref.id === primary.id)?.inputCost ?? Infinity;
-  // Cheaper, always. Family membership decides the order of preference, never
-  // the direction: a "fallback" that costs more than what it replaces is not a
-  // fallback, and picking the cheapest model should suggest nothing at all.
-  const cheaper = candidates.filter(
-    (c) => c.ref.provider === primary.provider && c.ref.id !== primary.id && c.inputCost < primaryCost,
-  );
-
-  const sameFamily = cheaper
-    .filter((c) => c.ref.id.startsWith(family))
-    .sort((a, b) => b.inputCost - a.inputCost);
-  if (sameFamily.length > 0) return sameFamily.map((c) => c.ref);
-
-  return cheaper
-    .sort((a, b) => b.inputCost - a.inputCost)
-    .slice(0, 2)
+  return ladderCandidates(primary, candidates)
+    .filter((c) => c.ref.provider === primary.provider && c.ref.id.startsWith(family))
     .map((c) => c.ref);
+}
+
+/**
+ * Every model the run could legally fall back to, cheapest last.
+ *
+ * Crossing providers is allowed — a plan and a cheap key from someone else are
+ * a perfectly sensible pair, and the config file has always been able to say
+ * so. Crossing *billing kinds* is not. The run decides what its budget counts
+ * once, from the primary: a subscription primary makes the limit a token count,
+ * a metered one makes it money. A ladder that mixed the two would spend real
+ * money against a token limit, or stop the money rising and leave the guard
+ * looking like it worked. Same kind, any provider, always cheaper.
+ */
+export function ladderCandidates(primary: ModelRef, candidates: ModelChoice[]): ModelChoice[] {
+  const chosen = candidates.find((c) => c.ref.provider === primary.provider && c.ref.id === primary.id);
+  const limit = chosen?.inputCost ?? Infinity;
+  const kind = chosen?.subscription ?? false;
+
+  return candidates
+    .filter(
+      (c) =>
+        c.subscription === kind &&
+        c.inputCost < limit &&
+        !(c.ref.provider === primary.provider && c.ref.id === primary.id),
+    )
+    .sort((a, b) => b.inputCost - a.inputCost);
 }
 
 export interface InitAnswers {
@@ -187,6 +206,7 @@ export interface InitStrings {
   ladder: string;
   ladderEmpty: string;
   ladderSubscription: string;
+  ladderHint: string;
   ignore: string;
   ignoreHint: string;
   preview: string;
@@ -215,6 +235,7 @@ export const INIT_TEXT: Record<Language, InitStrings> = {
     ladder: "预算快用完时，依次降级到",
     ladderEmpty: "没有更便宜的同类模型，不降级",
     ladderSubscription: "订阅按 token 限额，换便宜模型并不会少花 token —— 默认不降级",
+    ladderHint: "空格勾选，可跨 provider；按上面的顺序依次降级",
     ignore: "有什么是它不用提的？",
     ignoreHint: "已经吵完的话题，逗号分隔。比如：命名风格, 注释格式",
     preview: "将写入 review.config.json",
@@ -241,6 +262,7 @@ export const INIT_TEXT: Record<Language, InitStrings> = {
     ladder: "When the budget runs short, step down to",
     ladderEmpty: "Nothing cheaper of the same kind — no ladder",
     ladderSubscription: "A plan is capped in tokens, and a cheaper model does not use fewer — left unticked",
+    ladderHint: "Space to tick, any provider; they are stepped through in the order above",
     ignore: "Anything it should not raise?",
     ignoreHint: "Settled arguments, comma-separated. e.g. naming, comment style",
     preview: "will be written to review.config.json",

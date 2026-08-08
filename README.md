@@ -266,7 +266,7 @@ All three are in Chinese.
 ## Development
 
 ```bash
-npm test              # 268 tests, fully offline, no API key needed
+npm test              # 271 tests, fully offline, no API key needed
 npm run typecheck
 npm run dev -- <url>  # run from source via tsx
 ```

@@ -1,6 +1,6 @@
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { allModelCandidates, buildInitConfig, modelChoices, suggestLadder } from "../src/init/prompts.js";
+import { allModelCandidates, buildInitConfig, ladderCandidates, modelChoices, suggestLadder } from "../src/init/prompts.js";
 import type { ModelChoice } from "../src/init/prompts.js";
 
 function registry(models: { id: string; input: number; output: number; reasoning?: boolean }[]) {
@@ -127,6 +127,42 @@ describe("the config an answer set implies", () => {
   });
 });
 
+describe("what a ladder may contain", () => {
+  const mixed = [
+    choice("plan-big", 5, true),
+    choice("metered-big", 4),
+    choice("plan-small", 1, true),
+    choice("metered-small", 0.5),
+  ];
+
+  it("crosses providers, because a plan and a cheap key elsewhere are a fair pair", () => {
+    const cross = [
+      { ...choice("gpt-5.4", 2.5) },
+      { ...choice("kimi-k2.5", 0.6), ref: { provider: "moonshotai", id: "kimi-k2.5" }, label: "moonshotai/kimi-k2.5" },
+    ];
+    expect(ladderCandidates({ provider: "openai", id: "gpt-5.4" }, cross).map((c) => c.label)).toEqual([
+      "moonshotai/kimi-k2.5",
+    ]);
+  });
+
+  it("never mixes a plan with a price", () => {
+    // The run fixes what its budget counts from the primary alone: a plan makes
+    // the limit tokens, a price makes it money. A mixed ladder would spend real
+    // money against a token limit, or freeze the money and void the guard.
+    expect(ladderCandidates({ provider: "openai", id: "plan-big" }, mixed).map((c) => c.label)).toEqual([
+      "openai/plan-small",
+    ]);
+    expect(ladderCandidates({ provider: "openai", id: "metered-big" }, mixed).map((c) => c.label)).toEqual([
+      "openai/metered-small",
+    ]);
+  });
+
+  it("orders rungs by descending price, which is the order they are used in", () => {
+    const order = ladderCandidates({ provider: "openai", id: "plan-big" }, [...mixed].reverse());
+    expect(order.map((c) => c.inputCost)).toEqual([1]);
+  });
+});
+
 describe("ladder suggestions", () => {
   const candidates = [
     choice("gpt-5.4", 2.5),
@@ -152,9 +188,11 @@ describe("ladder suggestions", () => {
     );
   });
 
-  it("falls back to the next cheaper models when a family has no siblings", () => {
-    const ladder = suggestLadder({ provider: "openai", id: "o3" }, candidates);
-    expect(ladder.map((r) => r.id)).toEqual(["gpt-5.1", "gpt-5.4-mini"]);
+  it("suggests nothing rather than a different family at a similar price", () => {
+    // `o3` once proposed gpt-5.1 and gpt-5.4-mini: a change of reviewer for a
+    // fraction off. Every candidate is one keypress away in the list, so an
+    // unhelpful guess is worse than leaving the choice alone.
+    expect(suggestLadder({ provider: "openai", id: "o3" }, candidates)).toEqual([]);
   });
 
   it("suggests nothing when the choice is already the cheapest", () => {

@@ -245,7 +245,7 @@ src/
 ## 开发
 
 ```bash
-npm test              # 268 个测试，全部离线，不需要任何 API key
+npm test              # 271 个测试，全部离线，不需要任何 API key
 npm run typecheck
 npm run dev -- <url>  # tsx 直跑，不用先 build
 ```

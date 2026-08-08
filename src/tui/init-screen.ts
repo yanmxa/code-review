@@ -14,6 +14,7 @@ import {
   INIT_TEXT,
   type InitAnswers,
   type InitStrings,
+  ladderCandidates,
   type ModelChoice,
   suggestLadder,
 } from "../init/prompts.js";
@@ -46,7 +47,8 @@ export class InitWizard implements Component {
   private cursor = 0;
   private readonly ladderPicked = new Set<string>();
   private answers: InitAnswers;
-  private ladderOptions: ModelRef[] = [];
+  private ladderChoices: ModelChoice[] = [];
+  private ladderRows: ModelRow[] = [];
   private rows: ModelRow[] = [];
 
   constructor(
@@ -96,7 +98,7 @@ export class InitWizard implements Component {
         if (matchesKey(data, Key.enter)) this.commit();
         break;
       case "ladder":
-        this.navigate(data, this.ladderOptions.length);
+        this.navigate(data, this.ladderChoices.length);
         if (data === " ") this.toggleLadder();
         else if (matchesKey(data, Key.enter)) this.commit();
         break;
@@ -127,12 +129,18 @@ export class InitWizard implements Component {
   }
 
   private toggleLadder(): void {
-    const ref = this.ladderOptions[this.cursor];
-    if (!ref) return;
-    const label = refLabel(ref);
+    const choice = this.ladderChoices[this.cursor];
+    if (!choice) return;
+    const label = choice.label;
     if (this.ladderPicked.has(label)) this.ladderPicked.delete(label);
     else this.ladderPicked.add(label);
     this.syncLadder();
+  }
+
+  /** Whether the chosen model is reached through a plan rather than a price. */
+  private onSubscription(): boolean {
+    const chosen = this.answers.model && refLabel(this.answers.model);
+    return this.candidates.some((c) => c.label === chosen && c.subscription);
   }
 
   /**
@@ -143,14 +151,12 @@ export class InitWizard implements Component {
    * preview that lags the input is worse than none: it is a wrong answer to the
    * question "what am I about to write".
    */
-  /** Whether the chosen model is reached through a plan rather than a price. */
-  private onSubscription(): boolean {
-    const chosen = this.answers.model && refLabel(this.answers.model);
-    return this.candidates.some((c) => c.label === chosen && c.subscription);
-  }
-
   private syncLadder(): void {
-    this.answers.ladder = this.ladderOptions.filter((ref) => this.ladderPicked.has(refLabel(ref)));
+    // Kept in list order, which is descending price: that is the order the run
+    // will step through them, so it is the order the numbers must show.
+    this.answers.ladder = this.ladderChoices
+      .filter((c) => this.ladderPicked.has(c.label))
+      .map((c) => c.ref);
   }
 
   // ------------------------------------------------------------- stepping
@@ -166,17 +172,19 @@ export class InitWizard implements Component {
         // The suggestion is a starting point the user can edit, not a decision:
         // pre-ticked because accepting it is the common case, listed because
         // "what happens when the money runs out" should not be a surprise.
-        this.ladderOptions = this.answers.model
-          ? suggestLadder(this.answers.model, this.candidates)
+        this.ladderChoices = this.answers.model
+          ? ladderCandidates(this.answers.model, this.candidates)
+          : [];
+        this.ladderRows = this.ladderChoices.map((choice) => ({ kind: "model", choice }) as ModelRow);
+        const suggested = this.answers.model
+          ? suggestLadder(this.answers.model, this.candidates).map(refLabel)
           : [];
         this.ladderPicked.clear();
         // Ticked by default only when money is what runs out. Under a plan the
         // limit counts tokens, and a cheaper model does not produce fewer of
         // them — so the rungs are offered, but pre-selecting them would promise
         // a saving the ladder cannot deliver.
-        if (!this.onSubscription()) {
-          for (const ref of this.ladderOptions) this.ladderPicked.add(refLabel(ref));
-        }
+        if (!this.onSubscription()) for (const label of suggested) this.ladderPicked.add(label);
         this.syncLadder();
         break;
       }
@@ -202,7 +210,7 @@ export class InitWizard implements Component {
 
   private applicable(step: StepId): boolean {
     if (step === "model") return this.listed.length > 0;
-    if (step === "ladder") return this.ladderOptions.length > 0;
+    if (step === "ladder") return this.ladderChoices.length > 0;
     return true;
   }
 
@@ -314,15 +322,8 @@ export class InitWizard implements Component {
         rows.push(...this.modelRows(inner));
         break;
       case "ladder":
-        this.ladderOptions.forEach((ref, index) => {
-          const on = this.ladderPicked.has(refLabel(ref));
-          const box = on ? theme.ok("[✓]") : theme.dim("[ ]");
-          const arrow = theme.dim(`${index + 1}.`);
-          rows.push(
-            `   ${index === this.cursor ? theme.accent("›") : " "} ${box} ${arrow} ${on ? theme.text(refLabel(ref)) : theme.dim(refLabel(ref))}`,
-          );
-        });
-        if (this.onSubscription()) rows.push("", `      ${theme.dim(t.ladderSubscription)}`);
+        rows.push(...this.listRows(this.ladderRows, inner, (choice, index) => this.ladderLine(choice, index, inner)));
+        rows.push("", `      ${theme.dim(this.onSubscription() ? t.ladderSubscription : t.ladderHint)}`);
         break;
       case "ignore":
         rows.push(`      ${this.field(this.answers.ignore, "")}`);
@@ -343,30 +344,53 @@ export class InitWizard implements Component {
    * it readable — so whichever group the top row belongs to is always named.
    */
   private modelRows(inner: number): string[] {
-    const selectable = this.selectableRows();
-    const cursorRow = this.rows.indexOf(selectable[this.cursor]!);
-    const { start, end } = windowAround(this.rows.length, Math.max(0, cursorRow), 11);
+    return this.listRows(this.rows, inner, (choice, index) => {
+      const price = choice.subscription
+        ? theme.ok("✦")
+        : theme.dim(`$${choice.inputCost} / $${choice.outputCost}`);
+      return radio(index === this.cursor, choice.label, price, inner);
+    });
+  }
+
+  /** One ladder row: ticked rows carry the rung they will actually be used at. */
+  private ladderLine(choice: ModelChoice, index: number, inner: number): string {
+    const on = this.ladderPicked.has(choice.label);
+    const rung = this.answers.ladder.findIndex((ref) => refLabel(ref) === choice.label);
+    const box = on ? theme.ok("[✓]") : theme.dim("[ ]");
+    const order = on ? theme.dim(`${rung + 1}.`) : theme.dim("  ");
+    const price = choice.subscription
+      ? theme.ok("✦")
+      : theme.dim(`$${choice.inputCost} / $${choice.outputCost}`);
+    const name = on ? theme.text(choice.label) : theme.dim(choice.label);
+    const gap = Math.max(2, inner - 10 - visibleWidth(choice.label) - visibleWidth(price));
+    return `   ${index === this.cursor ? theme.accent("›") : " "} ${box} ${order} ${name}${" ".repeat(gap)}${price}`;
+  }
+
+  private listRows(
+    rows: ModelRow[],
+    inner: number,
+    line: (choice: ModelChoice, index: number) => string,
+  ): string[] {
+    const selectable = rows.filter((row) => row.kind === "model");
+    const cursorRow = rows.indexOf(selectable[this.cursor] ?? rows[0]!);
+    const { start, end } = windowAround(rows.length, Math.max(0, cursorRow), 11);
     const out: string[] = [];
 
-    if (this.rows[start]?.kind !== "header") {
-      const heading = this.rows.slice(0, start).findLast((row) => row.kind === "header");
+    if (rows[start]?.kind !== "header") {
+      const heading = rows.slice(0, start).findLast((row) => row.kind === "header");
       if (heading?.kind === "header") out.push(`      ${theme.dim(heading.label)}`);
     }
 
     for (let i = start; i < end; i++) {
-      const row = this.rows[i]!;
+      const row = rows[i]!;
       if (row.kind === "header") {
         if (i > start) out.push("");
         out.push(`      ${theme.dim(row.label)}`);
         continue;
       }
-      const index = selectable.indexOf(row);
-      const price = row.choice.subscription
-        ? theme.ok("✦")
-        : theme.dim(`$${row.choice.inputCost} / $${row.choice.outputCost}`);
-      out.push(radio(index === this.cursor, row.choice.label, price, inner));
+      out.push(line(row.choice, selectable.indexOf(row)));
     }
-    if (end < this.rows.length) out.push(`      ${theme.dim("…")}`);
+    if (end < rows.length) out.push(`      ${theme.dim("…")}`);
     return out;
   }
 
@@ -426,6 +450,11 @@ function radio(selected: boolean, label: string, trailing: string, inner = 0): s
   const gap = Math.max(2, inner - 8 - visibleWidth(label) - visibleWidth(trailing));
   return `   ${mark} ${dot} ${name}${" ".repeat(gap)}${trailing}`;
 }
+
+// The ladder list is deliberately flat. Grouping it by provider fought the one
+// ordering that carries meaning — descending price is the order the run steps
+// through — and interleaved the headers, so "openai" appeared three times. The
+// provider is already the first half of every label.
 
 /** Model rows split by how they are billed — the two are not comparable numbers. */
 function buildRows(listed: ModelChoice[], t: InitStrings): ModelRow[] {
