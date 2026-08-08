@@ -11,6 +11,7 @@
 - **CI 结果一起给模型** —— 失败的测试和它精确到行的报错，随 diff 一起进入上下文，不用模型去猜
 - **只在有依据时下结论** —— 有确定性证据的标"可直接采纳"，模型推断的标"仅供参考"，两者不混
 - **被否决过的不再提** —— 维护者删掉或 resolve 一条评论，就是永久否决
+- **你知道的可以告诉它** —— `--prompt "这是 #892 的 revert"`，随每个文件一起进上下文
 
 完整机制见 [一次评审是怎么跑完的](docs/how-it-works.zh.md)。
 
@@ -209,7 +210,7 @@ src/
 └── tui/           dashboard / 分诊 / trace 浏览；plain.ts 是同一事件流的行式渲染
 ```
 
-测试与被测模块一一对应，`test/` 下同名。跑一次 `npm test` 是 243 个用例、全部离线。
+测试与被测模块一一对应，`test/` 下同名。跑一次 `npm test` 是 245 个用例、全部离线。
 
 ---
 
@@ -278,6 +279,7 @@ code-review undismiss <pr-url> <fp> # 撤销某一条否决
 | --- | --- |
 | `--budget <amount>` | `10`、`¥10`、`$1.50`、`800k tokens`。裸数字用配置里的单位（默认 ¥10） |
 | `--model <ref>` | 指定主模型，如 `openai/gpt-5.4`。指定后不再自动降级 |
+| `--prompt <text>` | 这一次运行的额外说明，如 `"这是 #892 的 revert"`。会随每个文件的 diff 一起给模型 |
 | `--lang <zh\|en>` | 评审意见与报告的语言（默认 zh） |
 | `--post` | 把结果作为行内评论回评到 PR |
 | `--report <path>` | 额外把 markdown 报告写到指定路径 |
@@ -378,7 +380,7 @@ PR URL → 拉取(REST，不 clone) → 脱敏 → 切分成评审单元
 ## 开发
 
 ```bash
-npm test              # 243 个测试，全部离线，不需要任何 API key
+npm test              # 245 个测试，全部离线，不需要任何 API key
 npm run typecheck
 npm run dev -- <url>  # tsx 直跑，不用先 build
 ```

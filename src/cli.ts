@@ -56,6 +56,7 @@ ${theme.strong("Setup")}
 ${theme.strong("Options")}
   --budget <amount>     e.g. 10, ¥10, $1.50, 800k tokens      (default ${serializeBudgetLimit(DEFAULT_CONFIG.budget.limit)})
   --model <ref>         primary model, e.g. openai/gpt-5.4
+  --prompt <text>       extra context for this run, e.g. "this is a revert of #892"
   --lang <zh|en>        language for findings and the report  (default ${DEFAULT_CONFIG.lang})
   --post                post findings back to the pull request
   --report <path>       also write the markdown report here
@@ -82,6 +83,7 @@ async function main(argv: string[]): Promise<number> {
     options: {
       budget: { type: "string" },
       model: { type: "string" },
+      prompt: { type: "string" },
       lang: { type: "string" },
       post: { type: "boolean" },
       report: { type: "string" },
@@ -140,6 +142,9 @@ function buildConfig(values: Record<string, unknown>): Config {
     // different family than the user asked for would be worse than overrunning.
     flags.models = { primary };
     flags.budget = { ...(flags.budget ?? {}), models: [primary] };
+  }
+  if (typeof values.prompt === "string" && values.prompt.trim()) {
+    flags.review = { prompt: values.prompt.trim() };
   }
   if (values.lang === "zh" || values.lang === "en") flags.lang = values.lang;
   if (values.fresh === true) flags.fresh = true;
@@ -328,13 +333,14 @@ function commandConfig(config: Config): number {
     w(`  project rule    ${theme.accent(rule.id)} ${theme.dim(`${rule.severity} · /${rule.pattern}/`)}`);
   }
 
-  if (config.review.focus || config.review.ignore.length > 0) {
+  if (config.review.focus || config.review.ignore.length > 0 || config.review.prompt) {
     w("");
     w(theme.strong("Reviewer"));
     if (config.review.focus) w(`  focus           ${theme.text(config.review.focus)}`);
     if (config.review.ignore.length > 0) {
       w(`  will not raise  ${theme.dim(config.review.ignore.join(", "))}`);
     }
+    if (config.review.prompt) w(`  this run         ${theme.text(config.review.prompt)}`);
   }
   return 0;
 }

@@ -201,6 +201,12 @@ function renderAppendix(input: ReportInput): string {
     );
   }
 
+  if (state.prompt) {
+    parts.push(
+      `### ${lang === "zh" ? "本次运行的额外说明" : "Note given to the reviewer"}\n\n> ${state.prompt}`,
+    );
+  }
+
   if (skipped.length > 0) {
     parts.push(
       `### ${t("skippedHeading", lang)}\n\n` +

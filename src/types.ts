@@ -261,6 +261,8 @@ export interface RunState {
   spend: SpendLedger;
   /** The budget this run was given, so a later report never guesses at it. */
   budget?: { limit: number; unit: BudgetUnit; usdToCny: number };
+  /** The `--prompt` note, so resuming reviews the rest the same way. */
+  prompt?: string;
   ladderStage: number;
   squeezed: boolean;
   hardStopped: boolean;

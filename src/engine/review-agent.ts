@@ -149,7 +149,7 @@ export async function reviewUnit(
   });
 
   try {
-    await agent.prompt(buildUnitPrompt(unit, ruleHits, deps.snapshot, config.lang, deps.checks));
+    await agent.prompt(buildUnitPrompt(unit, ruleHits, deps.snapshot, config.lang, deps.checks, config.review.prompt));
 
     // One nudge, whatever the reason it stopped without reporting.
     //

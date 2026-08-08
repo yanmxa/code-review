@@ -206,6 +206,13 @@ export class RunStore {
     this.persist();
   }
 
+  /** Record the run-level note, once, when the run starts. */
+  setPrompt(prompt: string | undefined): void {
+    if (!prompt || this.state.prompt === prompt) return;
+    this.state.prompt = prompt;
+    this.persist();
+  }
+
   markCrossFileDone(): void {
     this.state.crossFileDone = true;
     this.persist();

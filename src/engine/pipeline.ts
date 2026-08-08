@@ -66,6 +66,15 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
   if (staleReason) emit({ type: "notice", level: "warn", text: staleReason });
   store.saveSnapshot(snapshot);
 
+  // A resumed run must review the remaining files the way the first pass did,
+  // so the note survives on disk rather than only in the command line.
+  const note = config.review.prompt ?? store.current.prompt;
+  store.setPrompt(note);
+  const runConfig: Config = note
+    ? { ...config, review: { ...config.review, prompt: note } }
+    : config;
+  if (note) emit({ type: "notice", level: "info", text: `Review note: ${note}` });
+
   // --- Plan --------------------------------------------------------------
   // One request, before any model call: CI is a fact about this change, and
   // reviewing without it means inferring what was already measured.
@@ -144,7 +153,15 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
     emit({ type: "unit_start", unitId: unit.id });
     store.markUnit(unit.id, { status: "in_progress", attempts: state.attempts + 1 });
 
-    const reviewed = await reviewOneUnit(unit, { ...deps, snapshot, budget, store, ruleContext, checks });
+    const reviewed = await reviewOneUnit(unit, {
+      ...deps,
+      config: runConfig,
+      snapshot,
+      budget,
+      store,
+      ruleContext,
+      checks,
+    });
     const unitFindings = { ...reviewed, findings: keep(reviewed.findings) };
 
     findings.push(...unitFindings.findings);

@@ -12,6 +12,7 @@ the evidence behind it. Built on the [pi](https://github.com/earendil-works/pi) 
 - **CI results go to the model too** — failing tests and their line-level errors enter the context alongside the diff, instead of being guessed at
 - **It only concludes what it can back** — machine-verifiable evidence is "adoptable", model reasoning is "for reference", and the two are never blurred
 - **A rejected comment is never raised again** — deleting or resolving one is a permanent no
+- **You can tell it what you know** — `--prompt "this is a revert of #892"` goes into the context with every file
 
 The full mechanism: [how a review runs](docs/how-it-works.zh.md) (Chinese).
 
@@ -234,7 +235,7 @@ src/
 └── tui/           dashboard / triage / trace viewer; plain.ts renders the same event stream
 ```
 
-Tests mirror the modules they cover under `test/`. `npm test` runs 243 of them,
+Tests mirror the modules they cover under `test/`. `npm test` runs 245 of them,
 entirely offline.
 
 ---
@@ -312,6 +313,7 @@ code-review undismiss <pr-url> <fp> # raise a dismissed finding again
 | --- | --- |
 | `--budget <amount>` | `10`, `¥10`, `$1.50`, `800k tokens`. A bare number takes the configured unit (default ¥10) |
 | `--model <ref>` | Primary model, e.g. `openai/gpt-5.4`. Setting it disables the ladder |
+| `--prompt <text>` | Context for this run, e.g. `"this is a revert of #892"`. Goes to the model with every file |
 | `--lang <zh\|en>` | Language of findings and report (default zh) |
 | `--post` | Post findings back to the PR as inline comments |
 | `--report <path>` | Also write the markdown report here |
@@ -436,7 +438,7 @@ and the [checkpoint file](examples/sample-state.json).
 ## Development
 
 ```bash
-npm test              # 243 tests, fully offline, no API key needed
+npm test              # 245 tests, fully offline, no API key needed
 npm run typecheck
 npm run dev -- <url>  # run from source via tsx
 ```

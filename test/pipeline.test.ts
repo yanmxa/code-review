@@ -407,3 +407,52 @@ describe("pipeline — a model that never reports", () => {
     expect(result.findings.some((f) => f.title === "Reported only after being nudged")).toBe(true);
   });
 });
+
+describe("pipeline — the --prompt note", () => {
+  it("reaches the model and survives a resume", async () => {
+    const adapter = new FakePlatform(SAMPLE_DIFF);
+    const note = "This is a revert of #892; treat the deletions as intentional.";
+
+    const first = scriptedModels([submitMessage([]), submitMessage([])]);
+    const { store } = await runReview(TEST_TARGET, {
+      adapter,
+      models: first.models,
+      redactor: new Redactor(),
+      config: config({ review: { ignore: [], prompt: note } }),
+      emit: () => {},
+    });
+
+    // It reached the model: the trace holds every prompt verbatim.
+    const events = Tracer.read(store.dirs.root, "traces/src_cache.ts.jsonl");
+    const request = events.find((event) => event.type === "llm_request");
+    expect(JSON.stringify(request)).toContain("revert of #892");
+
+    // And it is on disk, so resuming does not silently change the instructions
+    // the remaining files are reviewed under.
+    expect(store.current.prompt).toBe(note);
+  });
+
+  it("a resume without the flag still uses the note the run started with", async () => {
+    const adapter = new FakePlatform(SAMPLE_DIFF);
+    const note = "Only the auth changes matter here.";
+
+    const first = scriptedModels([submitMessage([]), submitMessage([])]);
+    await runReview(TEST_TARGET, {
+      adapter,
+      models: first.models,
+      redactor: new Redactor(),
+      config: config({ review: { ignore: [], prompt: note } }),
+      emit: () => {},
+    });
+
+    const second = scriptedModels([submitMessage([]), submitMessage([])]);
+    const resumed = await runReview(TEST_TARGET, {
+      adapter,
+      models: second.models,
+      redactor: new Redactor(),
+      config: config(), // no --prompt this time
+      emit: () => {},
+    });
+    expect(resumed.store.current.prompt).toBe(note);
+  });
+});

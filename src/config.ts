@@ -74,6 +74,16 @@ export interface ReviewConfig {
   focus?: string;
   /** Topics the reviewer must not raise, e.g. ["naming", "comment style"]. */
   ignore: string[];
+  /**
+   * A note for this run only, from `--prompt`.
+   *
+   * The reviewer's context is otherwise assembled entirely from the pull
+   * request, and the person starting the run routinely knows something it
+   * cannot derive — that this is a revert, that a retry loop is deliberate,
+   * that only the auth files matter. Without somewhere to say it, that
+   * knowledge is simply lost.
+   */
+  prompt?: string;
 }
 
 export const DEFAULT_CONFIG: Config = {

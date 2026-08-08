@@ -90,6 +90,7 @@ export function buildUnitPrompt(
   snapshot: PrSnapshot,
   lang: Language,
   checks?: CheckSummary,
+  note?: string,
 ): string {
   const parts: string[] = [];
 
@@ -141,6 +142,16 @@ export function buildUnitPrompt(
         ruleHits.map((hit) => `- \`${hit.path}:${hit.line}\` — ${hit.title} (rule \`${hit.ruleId}\`)`).join("\n") +
         `\n\nThese are already reported with their own evidence; do not duplicate them. ` +
         `Use them as signal about what kind of change this is.`,
+    );
+  }
+
+  // Placed last, immediately before the instruction to begin: whoever started
+  // this run knows something the pull request does not say, and it should be
+  // the freshest thing in context rather than buried above the diff.
+  if (note?.trim()) {
+    parts.push(
+      `## From the person who started this review\n\n${note.trim()}\n\n` +
+        `Treat this as context about the change, not as a finding to report.`,
     );
   }
 
