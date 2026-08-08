@@ -12,7 +12,7 @@ the evidence behind it. Built on the [pi](https://github.com/earendil-works/pi) 
 - **CI results go to the model too** — failing tests and their line-level errors enter the context alongside the diff, instead of being guessed at
 - **It only concludes what it can back** — machine-verifiable evidence is "adoptable", model reasoning is "for reference", and the two are never blurred
 - **A rejected comment is never raised again** — deleting or resolving one is a permanent no
-- **You can tell it what you know** — `--prompt "this is a revert of #892"` goes into the context with every file
+- **You can supply what the PR does not say** — `--prompt "this is a revert of #892"` or `"the retry loop is deliberate"`, and every file is reviewed knowing it
 
 The full mechanism: [how a review runs](docs/how-it-works.zh.md) (Chinese).
 
