@@ -27,7 +27,6 @@
 
 ## 快速开始
 
-
 ```bash
 git clone https://github.com/yanmxa/code-review && cd code-review
 npm install -g .                       # 编译并把 code-review 装到 PATH
@@ -44,105 +43,7 @@ code-review https://github.com/yanmxa/code-review/pull/1 --budget 6
 
 ---
 
-## 界面
-
-
-评审进行中：左边文件进度，右边 agent 此刻在做什么，顶部始终是花费和当前模型。
-
-```
-⬢ yanmxa/code-review #1 demo: add cache eviction, session lookup, and retry helper
-demo/planted-defects → main · 4 files                                                 openai/gpt-5.4
-▱▱▱▱▱▱▱▱▱▱ ¥0.25/¥6.00 · → ¥0.29 · ↑4.1k ↓1.5k ⛁10.8k                                               
-
-╭─ 文件 ─────────────────────────── 2/4 ─╮╭─ 进行中 ───────────────────────────────────────────────╮
-│✓ demo/src/cache.ts                  2  ││▸ demo/src/retry.ts                                     │
-│✓ demo/src/config.ts                 1  ││  → get_file demo/src/retry.ts                          │
-│⠋ demo/src/retry.ts                     ││    demo/src/retry.ts (11 lines)                        │
-│◌ demo/src/session.ts                   ││  → search_diff withRetry\(                             │
-│                                        ││    No changed line matches /withRetry\(/.              │
-│                                        ││────────────────────                                    │
-│                                        ││循环条件用的是 i <= attempts，默认 3                    │
-│                                        ││会跑四次。正在确认调用方是否依赖这个行为…               │
-│                                        ││                                                        │
-│                                        ││                                                        │
-│                                        ││                                                        │
-│                                        ││                                                        │
-│                                        ││                                                        │
-│                                        ││                                                        │
-╰────────────────────────────────────────╯╰────────────────────────────────────────────────────────╯
-
-━━━━━━━━━━━━ 2/4 · 00:00  ●4 ○0                                                    ctrl+c 存档并退出
-```
-
-<details>
-<summary><b>跑完进入分诊：按置信度分两组，可采纳的默认已勾选</b></summary>
-
-`p` 一键回评选中的。右侧显示这条意见**凭什么**被判成这一档。
-
-```
-⬢ 评审结果 · 8 total  ● 5  ○ 3                                                ▱▱▱▱▱▱▱▱▱▱ ¥0.25/¥6.00
-
-╭─ 发现 ─────────────────────────── 5/8 ─╮╭─ 详情 ─────────────────────────────────────────────────╮
-│● 可直接采纳 (5)                        ││● Credential committed in this change                   │
-│▌[x] ● config.ts:4 Credential commi...  ││F-001 · 阻断 · 可直接采纳                               │
-│ [x] ● session.ts:14 SQL built by s...  ││demo/src/config.ts:4                                    │
-│ [x] ● session.ts:8 Non-cryptograph...  ││                                                        │
-│ [x] ● cache.ts:15 New `console` lo...  ││The secret scanner classified this line as              │
-│ [x] ● session.ts:4 Loose equality ...  ││`aws-access-key` (the value was masked before any       │
-│                                        ││model saw it). Remove it from the code, move it to an   │
-│○ 仅供参考 (3)                          ││environment variable or secret manager, and **rotate    │
-│ [ ] ○ cache.ts:11 Eviction runs ev...  ││the credential** — it is already in git history.        │
-│ [ ] ○ retry.ts:3 Retry loop perfor...  ││                                                        │
-│ [ ] ○ session.ts:15 Database failu...  ││证据                                                    │
-│                                        ││  ● 规则 secret-in-diff 命中 demo/src/config.ts:4 —     │
-│                                        ││    awsAccessKeyId: "[REDACTED:aws-access-key:1a5d]",   │
-│                                        ││                                                        │
-│                                        ││→ traces/demo_src_config.ts.jsonl   t 查看 trace        │
-│                                        ││                                                        │
-│                                        ││                                                        │
-│                                        ││                                                        │
-╰────────────────────────────────────────╯╰────────────────────────────────────────────────────────╯
-
-                                     ↑↓ 移动 · space 选中 · a 全选可采纳 · t trace · p 回评 · q 退出
-```
-
-</details>
-
-<details>
-<summary><b>按 <code>t</code> 查看某条意见的完整 trace</b></summary>
-
-```
-╭─ F-002 · traces/demo_src_session.ts.jsonl ───────────────────────────────────────────────────────╮
-│ 03:46:18 ✦ rule loose-equality demo/src/session.ts:4                                             │
-│ 03:46:18 ✦ rule insecure-random demo/src/session.ts:8                                            │
-│▌03:46:18 ✦ rule sql-string-concat demo/src/session.ts:14                                         │
-│ 03:46:18 ▸ unit demo/src/session.ts openai/gpt-5.4                                               │
-│ 03:46:18 ↑ llm 1 msg · 4 tools openai/gpt-5.4                                                    │
-│ 03:46:20 ↓ llm toolUse ↑269 ↓128 $0.0030                                                         │
-│ 03:46:20 → search_diff {"pattern":"\\bloadSession\\s*\\(","maxResu...                            │
-│ 03:46:20   · 1 matching changed line(s):                                                         │
-│ 03:46:20 ↑ llm 3 msg · 4 tools openai/gpt-5.4                                                    │
-│ 03:46:22 ↓ llm toolUse ↑433 ↓42 $0.0021                                                          │
-│ 03:46:22 → get_file {"path":"demo/src/db.ts","startLine":1}                                      │
-│ 03:46:23   · File not found at head commit: demo/src/db.ts                                       │
-│ 03:46:23 ↑ llm 5 msg · 4 tools openai/gpt-5.4                                                    │
-│ 03:46:25 ↓ llm toolUse ↑497 ↓41 $0.0022                                                          │
-│ 03:46:25 → search_diff {"pattern":"\\bcreateConnection\\b","maxRes...                            │
-│ 03:46:25   · 2 matching changed line(s):                                                         │
-│                                                                   ↑↓ 移动 · enter 展开 · esc 关闭│
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
-
-调了哪些工具、发出去的 prompt 原文、模型原始回复、每步花了多少钱。回车展开任意一行。
-
-</details>
-
-没有 TTY 时（CI、管道、`--no-tui`）自动降级为逐行输出，消费的是同一个事件流。
-
----
-
-## 自己验证一下
-
+### 自己验证一下
 
 这些不是单测断言，是可以直接复现的命令。演示 PR 里埋了 6 个缺陷。
 
@@ -172,8 +73,84 @@ code-review $PR --post && code-review $PR --post
 
 ---
 
-## 命令与配置
+## 界面
 
+评审进行中：左边文件进度，右边 agent 此刻在做什么，顶部始终是花费和当前模型。
+
+```
+⬢ yanmxa/code-review #1 demo: add cache eviction, session lookup, and...
+demo/planted-defects → main · 4 files                                     openai/gpt-5.4
+▰▱▱▱▱▱▱▱▱▱ ¥0.38/¥6.00 · → ¥0.43 · ↑9.9k ↓1.7k ⛁6.1k
+
+╭─ 文件 ───────────────────── 2/4 ─╮╭─ 进行中 ─────────────────────────────────────────╮
+│✓ demo/src/cache.ts            2  ││    demo/src/retry.ts (11 lines)                  │
+│✓ demo/src/config.ts           1  ││  → ts_syntax_check demo/src/retry.ts             │
+│⠋ demo/src/retry.ts               ││    no diagnostics                                │
+│◌ demo/src/session.ts             ││────────────────────                              │
+│                                  ││循环条件是 i <= attempts，默认 3                  │
+│                                  ││会跑四次。正在确认调用方是否依赖…                 │
+│                                  ││                                                  │
+╰──────────────────────────────────╯╰──────────────────────────────────────────────────╯
+
+━━━━━━━━━━━━ 2/4 · 00:00  ●4 ○0                                        ctrl+c 存档并退出
+```
+
+<details>
+<summary><b>跑完进入分诊：按置信度分两组，可采纳的默认已勾选</b></summary>
+
+`p` 一键回评选中的。右侧显示这条意见**凭什么**被判成这一档。
+
+```
+⬢ 评审结果 · 11 total  ● 7  ○ 4                                   ▰▱▱▱▱▱▱▱▱▱ ¥0.38/¥6.00
+
+╭─ 发现 ──────────────────── 7/11 ─╮╭─ 详情 ───────────────────────────────────────────╮
+│● 可直接采纳 (7)                  ││● 提交中包含疑似密钥                              │
+│▌[x] ● config.ts:4 提交中包含...  ││F-001 · 阻断 · 可直接采纳                         │
+│ [x] ● session.ts:14 SQL 语句...  ││demo/src/config.ts:4                              │
+│ [x] ● session.ts:8 用非密码...   ││                                                  │
+│ [x] ● cache.ts:15 新增了 con...  ││这一行被密钥扫描器判定为                          │
+│ [x] ● retry.ts:1 改动没有配...   ││`aws-access-key`（内容已在传给模型前脱敏）。请从  │
+│ [x] ● session.ts:4 改动没有...   ││代码中移除，改用环境变量或密钥管理服务，并**轮换  │
+│ [x] ● session.ts:4 使用了宽...   ││该凭据**——它已经进入了 git 历史。                 │
+│                                  ││                                                  │
+│○ 仅供参考 (4)                    ││证据                                              │
+│ [ ] ○ config.ts:5 提交了明文...  ││  ● 规则 secret-in-diff 命中                      │
+╰──────────────────────────────────╯╰──────────────────────────────────────────────────╯
+
+                         ↑↓ 移动 · space 选中 · a 全选可采纳 · t trace · p 回评 · q 退出
+```
+
+</details>
+
+<details>
+<summary><b>按 <code>t</code> 查看某条意见的完整 trace</b></summary>
+
+```
+╭─ F-002 · traces/demo_src_session.ts.jsonl ───────────────────────────────────────────╮
+│▌14:38:56 ✦ rule no-test-change demo/src/session.ts:4                                 │
+│ 14:38:56 ✦ rule loose-equality demo/src/session.ts:4                                 │
+│ 14:38:56 ✦ rule insecure-random demo/src/session.ts:8                                │
+│ 14:38:56 ✦ rule sql-string-concat demo/src/session.ts:14                             │
+│ 14:38:56 ▸ unit demo/src/session.ts openai/gpt-5.4                                   │
+│ 14:38:56 ↑ llm 1 msg · 4 tools openai/gpt-5.4                                        │
+│ 14:38:59 ↓ llm toolUse ↑1.6k ↓89 $0.0054                                             │
+│ 14:38:59 → get_file {"path":"demo/src/session.ts"}                                   │
+│ 14:39:00   · demo/src/session.ts                                                     │
+│ 14:39:00 ↑ llm 3 msg · 4 tools openai/gpt-5.4                                        │
+│ 14:39:01 ↓ llm toolUse ↑391 ↓33 $0.0019                                              │
+│                                                       ↑↓ 移动 · enter 展开 · esc 关闭│
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+调了哪些工具、发出去的 prompt 原文、模型原始回复、每步花了多少钱。回车展开任意一行。
+
+</details>
+
+没有 TTY 时（CI、管道、`--no-tui`）自动降级为逐行输出，消费的是同一个事件流。
+
+---
+
+## 命令与配置
 
 ```bash
 code-review <pr-url> [options]      # 评审一个 PR
@@ -210,7 +187,6 @@ code-review config                  # 查看这次运行会用的配置
 
 ## 扩展
 
-
 规则只能做正则能做的事；要真正去**查**点什么（跑编译器、查依赖公告、调内部服务），就加一个工具。
 
 一个工具 = 一个文件 + 注册表里一行，**主流程不动**：
@@ -230,23 +206,7 @@ code-review config                  # 查看这次运行会用的配置
 
 ---
 
-## 架构
-
-```
-PR URL → 拉取(REST，不 clone) → 脱敏 → 切分成评审单元
-       → 每个单元：确定性规则 ∥ agent 循环(只读工具 + submit_findings)
-       → 去重 → 按证据分级 → 报告 / TUI 分诊 / 回评
-```
-
-机制细节见 [一次评审是怎么跑完的](docs/how-it-works.zh.md)；下面三个取舍的展开论证见 [设计文档](docs/design.zh.md)：
-
-- **每个文件一个 agent 循环**，不是整个 PR 一次调用。文件是人做 review 的思考单位，也让断点、预算、上下文都有了自然边界。
-- **预算与追踪挂在 stream function 上**，不散在流程里。这样它们对每一次 LLM 调用生效，而 pipeline 完全不知道它们存在。
-- **"可直接采纳"只认机器证据**。曾写过"附近有规则命中就提升置信度"，被测试推翻删掉了——位置相近不等于说的是同一件事。
-
-依赖 pi 的三个包：`pi-ai`（统一 LLM 接口 + 逐次用量/成本）、`pi-agent-core`（agent 循环 + 声明式工具）、`pi-tui`（差分渲染终端 UI）。
-
-### 源码结构
+## 项目结构
 
 ```
 src/
@@ -269,6 +229,8 @@ src/
 
 测试与被测模块一一对应，`test/` 下同名。
 
+依赖 pi 的三个包：`pi-ai`（统一 LLM 接口 + 逐次用量/成本）、`pi-agent-core`（agent 循环 + 声明式工具）、`pi-tui`（差分渲染终端 UI）。设计取舍见 [设计文档](docs/design.zh.md)。
+
 ### 文档
 
 | 文档 | 内容 |
@@ -276,13 +238,11 @@ src/
 | [一次评审是怎么跑完的](docs/how-it-works.zh.md) | 机制：跟着一条真实发现走完全程 |
 | [配置](docs/configuration.zh.md) | 全部参数、配置字段、凭据、怎么加工具 |
 | [设计文档](docs/design.zh.md) | 取舍：为什么这样设计，放弃了什么 |
-| [关于 AI 的使用](docs/ai-usage.md) | 过程：AI 写错了什么，怎么发现的 |
 | [`examples/`](examples/) | 真实运行的产物：[报告](examples/sample-report.zh.md) · [trace](examples/sample-trace.jsonl) · [断点](examples/sample-state.json) |
 
 ---
 
 ## 开发
-
 
 ```bash
 npm test              # 245 个测试，全部离线，不需要任何 API key
@@ -309,13 +269,3 @@ npm run dev -- <url>  # tsx 直跑，不用先 build
 Node 的 `fetch` 默认**不读** `HTTPS_PROXY`（curl 会读），表现为一个看起来像 API key 出问题的 `Connection error.`。检测到配置了代理会自动带 `NODE_USE_ENV_PROXY=1` 重启一次，无需手动处理。
 
 </details>
-
----
-
-## 关于 AI 的使用
-
-
-本项目由 AI 辅助完成，过程记录在 [`docs/ai-usage.md`](docs/ai-usage.md)：哪些是 AI 写的、怎么验证的、AI 写错了什么（6 个缺陷）、又是怎么被发现的。
-
-MIT License.
-

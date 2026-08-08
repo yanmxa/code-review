@@ -7,10 +7,19 @@
 ## 1. 整体结构
 
 ```
+PR URL → 拉取(REST，不 clone) → 脱敏 → 切分成评审单元
+       → 每个单元：确定性规则 ∥ agent 循环(只读工具 + submit_findings)
+       → 去重 → 按证据分级 → 报告 / TUI 分诊 / 回评
+```
+
+展开成每一步收到什么、产出什么，见 [一次评审是怎么跑完的](how-it-works.zh.md)。
+
+```
 PR URL
   │
   ├─ parseTarget ──────────── 解析 GitHub/GitLab 链接
   ├─ adapter.fetchPr ──────── REST 拉 PR 元信息 + 完整 unified diff（不 clone）
+  ├─ adapter.fetchChecks ──── CI 结论与精确到行的诊断
   ├─ redactor.redact ──────── 脱敏（此后所有字符串都是 Redacted<string>）
   ├─ RunStore.open ────────── 按 (PR, head SHA) 找到或新建断点
   ├─ planUnits ────────────── 切分成评审单元（默认一个文件一个）
@@ -27,6 +36,10 @@ PR URL
 ```
 
 主流程（`src/engine/pipeline.ts`）只知道**顺序**，不知道**内容**：有哪些工具、哪些规则、怎么定级、什么时候降级，全都在别处。这是"新增工具不改主流程"能成立的前提，不是一句口号。
+
+**依赖 pi 的三个包**：`pi-ai`（统一 LLM 接口 + 逐次用量/成本）、`pi-agent-core`（agent 循环 + 声明式工具 + `terminate` 语义）、`pi-tui`（差分渲染的终端 UI）。
+
+**三个关键取舍**（下一节展开）：每个文件一个 agent 循环；预算与追踪挂在 stream function 上；"可直接采纳"只认机器证据。
 
 ---
 

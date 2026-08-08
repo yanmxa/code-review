@@ -28,7 +28,6 @@ The full mechanism: [how a review runs](docs/how-it-works.zh.md) (Chinese).
 
 ## Quick start
 
-
 ```bash
 git clone https://github.com/yanmxa/code-review && cd code-review
 npm install -g .                       # builds and puts `code-review` on your PATH
@@ -45,108 +44,7 @@ Prefer not to install globally: `npm install && npm run dev -- <pr-url>`.
 
 ---
 
-## What it looks like
-
-
-During the run: file progress on the left, what the agent is doing right now on
-the right, spend and current model always on top.
-
-```
-⬢ yanmxa/code-review #1 demo: add cache eviction, session lookup, and retry helper
-demo/planted-defects → main · 4 files                                                 openai/gpt-5.4
-▱▱▱▱▱▱▱▱▱▱ ¥0.25/¥6.00 · → ¥0.29 · ↑4.1k ↓1.5k ⛁10.8k                                               
-
-╭─ Files ────────────────────────── 2/4 ─╮╭─ Activity ─────────────────────────────────────────────╮
-│✓ demo/src/cache.ts                  2  ││▸ demo/src/retry.ts                                     │
-│✓ demo/src/config.ts                 1  ││  → get_file demo/src/retry.ts                          │
-│⠋ demo/src/retry.ts                     ││    demo/src/retry.ts (11 lines)                        │
-│◌ demo/src/session.ts                   ││  → search_diff withRetry\(                             │
-│                                        ││    No changed line matches /withRetry\(/.              │
-│                                        ││────────────────────                                    │
-│                                        ││The loop condition uses i <= attempts, so with the      │
-│                                        ││default of 3 it runs four times. Checking whether any   │
-│                                        ││caller depends on that…                                 │
-│                                        ││                                                        │
-│                                        ││                                                        │
-│                                        ││                                                        │
-│                                        ││                                                        │
-│                                        ││                                                        │
-╰────────────────────────────────────────╯╰────────────────────────────────────────────────────────╯
-
-━━━━━━━━━━━━ 2/4 · 00:00  ●4 ○0                                             ctrl+c checkpoint & quit
-```
-
-<details>
-<summary><b>Then triage: two groups by confidence, adoptable ones pre-selected</b></summary>
-
-`p` posts the selection. The right pane shows *why* a finding earned its tier.
-
-```
-⬢ Review findings · 8 total  ● 5  ○ 3                                         ▱▱▱▱▱▱▱▱▱▱ ¥0.25/¥6.00
-
-╭─ Findings ─────────────────────── 5/8 ─╮╭─ Detail ───────────────────────────────────────────────╮
-│● ADOPTABLE (5)                         ││● Credential committed in this change                   │
-│▌[x] ● config.ts:4 Credential commi...  ││F-001 · blocker · adoptable                             │
-│ [x] ● session.ts:14 SQL built by s...  ││demo/src/config.ts:4                                    │
-│ [x] ● session.ts:8 Non-cryptograph...  ││                                                        │
-│ [x] ● cache.ts:15 New `console` lo...  ││The secret scanner classified this line as              │
-│ [x] ● session.ts:4 Loose equality ...  ││`aws-access-key` (the value was masked before any       │
-│                                        ││model saw it). Remove it from the code, move it to an   │
-│○ REFERENCE (3)                         ││environment variable or secret manager, and **rotate    │
-│ [ ] ○ cache.ts:11 Eviction runs ev...  ││the credential** — it is already in git history.        │
-│ [ ] ○ retry.ts:3 Retry loop perfor...  ││                                                        │
-│ [ ] ○ session.ts:15 Database failu...  ││Evidence                                                │
-│                                        ││  ● rule secret-in-diff matched demo/src/config.ts:4 —  │
-│                                        ││    awsAccessKeyId: "[REDACTED:aws-access-key:1a5d]",   │
-│                                        ││                                                        │
-│                                        ││→ traces/demo_src_config.ts.jsonl   t open trace        │
-│                                        ││                                                        │
-│                                        ││                                                        │
-│                                        ││                                                        │
-╰────────────────────────────────────────╯╰────────────────────────────────────────────────────────╯
-
-                                ↑↓ move · space toggle · a all adoptable · t trace · p post · q quit
-```
-
-</details>
-
-<details>
-<summary><b>Press <code>t</code> for the full trace behind any finding</b></summary>
-
-```
-╭─ F-002 · traces/demo_src_session.ts.jsonl ───────────────────────────────────────────────────────╮
-│ 03:46:18 ✦ rule loose-equality demo/src/session.ts:4                                             │
-│ 03:46:18 ✦ rule insecure-random demo/src/session.ts:8                                            │
-│▌03:46:18 ✦ rule sql-string-concat demo/src/session.ts:14                                         │
-│ 03:46:18 ▸ unit demo/src/session.ts openai/gpt-5.4                                               │
-│ 03:46:18 ↑ llm 1 msg · 4 tools openai/gpt-5.4                                                    │
-│ 03:46:20 ↓ llm toolUse ↑269 ↓128 $0.0030                                                         │
-│ 03:46:20 → search_diff {"pattern":"\\bloadSession\\s*\\(","maxResu...                            │
-│ 03:46:20   · 1 matching changed line(s):                                                         │
-│ 03:46:20 ↑ llm 3 msg · 4 tools openai/gpt-5.4                                                    │
-│ 03:46:22 ↓ llm toolUse ↑433 ↓42 $0.0021                                                          │
-│ 03:46:22 → get_file {"path":"demo/src/db.ts","startLine":1}                                      │
-│ 03:46:23   · File not found at head commit: demo/src/db.ts                                       │
-│ 03:46:23 ↑ llm 5 msg · 4 tools openai/gpt-5.4                                                    │
-│ 03:46:25 ↓ llm toolUse ↑497 ↓41 $0.0022                                                          │
-│ 03:46:25 → search_diff {"pattern":"\\bcreateConnection\\b","maxRes...                            │
-│ 03:46:25   · 2 matching changed line(s):                                                         │
-│                                                                ↑↓ move · enter expand · esc close│
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
-
-Which tools ran, the exact prompt sent, the raw model response, and what each
-step cost. Enter expands any row.
-
-</details>
-
-Without a TTY — CI, a pipe, `--no-tui` — it falls back to line output driven by
-the same event stream.
-
----
-
-## Verify the claims yourself
-
+### Verify the claims yourself
 
 These are not test assertions; they are commands you can run. The demo PR has
 six planted defects.
@@ -181,8 +79,87 @@ still carried 5 adoptable findings.
 
 ---
 
-## Commands and configuration
+## What it looks like
 
+During the run: file progress on the left, what the agent is doing right now on
+the right, spend and current model always on top.
+
+```
+⬢ yanmxa/code-review #1 demo: add cache eviction, session lookup, and...
+demo/planted-defects → main · 4 files                                     openai/gpt-5.4
+▱▱▱▱▱▱▱▱▱▱ ¥0.30/¥6.00 · → ¥0.34 · ↑8.7k ↓1.2k ⛁4.6k
+
+╭─ Files ──────────────────── 2/4 ─╮╭─ Activity ───────────────────────────────────────╮
+│✓ demo/src/cache.ts            2  ││    demo/src/retry.ts (11 lines)                  │
+│✓ demo/src/config.ts           1  ││  → ts_syntax_check demo/src/retry.ts             │
+│⠋ demo/src/retry.ts               ││    no diagnostics                                │
+│◌ demo/src/session.ts             ││────────────────────                              │
+│                                  ││The condition is i <= attempts, so a default of   │
+│                                  ││3 runs four times. Checking callers…              │
+│                                  ││                                                  │
+╰──────────────────────────────────╯╰──────────────────────────────────────────────────╯
+
+━━━━━━━━━━━━ 2/4 · 00:00  ●4 ○0                                 ctrl+c checkpoint & quit
+```
+
+<details>
+<summary><b>Then triage: two groups by confidence, adoptable ones pre-selected</b></summary>
+
+`p` posts the selection. The right pane shows *why* a finding earned its tier.
+
+```
+⬢ Review findings · 10 total  ● 7  ○ 3                            ▱▱▱▱▱▱▱▱▱▱ ¥0.30/¥6.00
+
+╭─ Findings ──────────────── 7/10 ─╮╭─ Detail ─────────────────────────────────────────╮
+│● ADOPTABLE (7)                   ││● Credential committed in this change             │
+│▌[x] ● config.ts:4 Credential...  ││F-001 · blocker · adoptable                       │
+│ [x] ● session.ts:14 SQL buil...  ││demo/src/config.ts:4                              │
+│ [x] ● session.ts:8 Non-crypt...  ││                                                  │
+│ [x] ● cache.ts:15 New `conso...  ││The secret scanner classified this line as        │
+│ [x] ● retry.ts:1 Changed wit...  ││`aws-access-key` (the value was masked before     │
+│ [x] ● session.ts:4 Changed w...  ││any model saw it). Remove it from the code, move  │
+│ [x] ● session.ts:4 Loose equ...  ││it to an environment variable or secret manager,  │
+│                                  ││and **rotate the credential** — it is already in  │
+│○ REFERENCE (3)                   ││git history.                                      │
+│ [ ] ○ cache.ts:11 Eviction r...  ││                                                  │
+╰──────────────────────────────────╯╰──────────────────────────────────────────────────╯
+
+                    ↑↓ move · space toggle · a all adoptable · t trace · p post · q quit
+```
+
+</details>
+
+<details>
+<summary><b>Press <code>t</code> for the full trace behind any finding</b></summary>
+
+```
+╭─ F-002 · traces/demo_src_session.ts.jsonl ───────────────────────────────────────────╮
+│▌14:39:34 ✦ rule no-test-change demo/src/session.ts:4                                 │
+│ 14:39:34 ✦ rule loose-equality demo/src/session.ts:4                                 │
+│ 14:39:34 ✦ rule insecure-random demo/src/session.ts:8                                │
+│ 14:39:34 ✦ rule sql-string-concat demo/src/session.ts:14                             │
+│ 14:39:34 ▸ unit demo/src/session.ts openai/gpt-5.4                                   │
+│ 14:39:34 ↑ llm 1 msg · 4 tools openai/gpt-5.4                                        │
+│ 14:39:36 ↓ llm toolUse ↑1.6k ↓86 $0.0053                                             │
+│ 14:39:36 → get_file {"path":"demo/src/db.ts","startLine":1}                          │
+│ 14:39:38   · File not found at head commit: demo/src/db.ts                           │
+│ 14:39:38 ↑ llm 3 msg · 4 tools openai/gpt-5.4                                        │
+│ 14:39:41 ↓ llm toolUse ↑176 ↓48 $0.0015                                              │
+│                                                    ↑↓ move · enter expand · esc close│
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+Which tools ran, the exact prompt sent, the raw model response, and what each
+step cost. Enter expands any row.
+
+</details>
+
+Without a TTY — CI, a pipe, `--no-tui` — it falls back to line output driven by
+the same event stream.
+
+---
+
+## Commands and configuration
 
 ```bash
 code-review <pr-url> [options]      # review a pull request
@@ -221,7 +198,6 @@ Full reference — every flag and field, credentials, and how to add a tool — 
 
 ## Extending
 
-
 Rules can only do what a regular expression can. When something has to actually
 be *looked up* — run a compiler, query an advisory database, call an internal
 service — that is a tool.
@@ -246,32 +222,7 @@ Worked example and how to choose `evidenceKind`:
 
 ---
 
-## Architecture
-
-```
-PR URL → fetch (REST, no clone) → redact → split into review units
-       → per unit: deterministic rules ∥ agent loop (read-only tools + submit_findings)
-       → dedupe → grade by evidence → report / TUI triage / post
-```
-
-The mechanism is documented in [how a review runs](docs/how-it-works.zh.md); the
-reasoning behind these three decisions is in the [design doc](docs/design.zh.md)
-(both Chinese):
-
-- **One agent loop per file**, not one call for the whole PR. A file is the unit
-  a human reviewer thinks in, and it gives checkpoints, budget, and context a
-  natural boundary.
-- **Budget and tracing hang off the stream function**, not the pipeline. They
-  apply to every LLM call while the pipeline stays unaware they exist.
-- **"Adoptable" requires machine evidence.** An earlier version promoted a
-  finding when a rule fired nearby; a test killed it. Proximity is not
-  corroboration.
-
-Built on three pi packages: `pi-ai` (unified LLM API with per-call usage and
-cost), `pi-agent-core` (agent loop, declarative tools), `pi-tui`
-(differential-rendering terminal UI).
-
-### Code map
+## Project layout
 
 ```
 src/
@@ -294,6 +245,11 @@ src/
 
 Tests mirror the modules they cover under `test/`.
 
+Built on three pi packages: `pi-ai` (unified LLM API with per-call usage and
+cost), `pi-agent-core` (agent loop, declarative tools), `pi-tui`
+(differential-rendering terminal UI). The tradeoffs are in the
+[design notes](docs/design.zh.md).
+
 ### Documentation
 
 | Document | Contents |
@@ -301,15 +257,13 @@ Tests mirror the modules they cover under `test/`.
 | [How a review runs](docs/how-it-works.zh.md) | The mechanism, following one real finding end to end |
 | [Configuration](docs/configuration.zh.md) | Every flag and field, credentials, adding a tool |
 | [Design notes](docs/design.zh.md) | The tradeoffs, and what each one gave up |
-| [On AI assistance](docs/ai-usage.md) | The process: what AI got wrong, and how it was caught |
 | [`examples/`](examples/) | Real artifacts: [report](examples/sample-report.en.md) · [trace](examples/sample-trace.jsonl) · [checkpoint](examples/sample-state.json) |
 
-The first four are in Chinese.
+All three are in Chinese.
 
 ---
 
 ## Development
-
 
 ```bash
 npm test              # 245 tests, fully offline, no API key needed
@@ -345,15 +299,3 @@ Node's `fetch` does **not** read `HTTPS_PROXY` (curl does), which surfaces as a
 the CLI re-execs once with `NODE_USE_ENV_PROXY=1` so it just works.
 
 </details>
-
----
-
-## On AI assistance
-
-
-Built with AI assistance. [`docs/ai-usage.md`](docs/ai-usage.md) records the
-process honestly: which parts AI wrote, how they were verified, the six defects
-AI introduced, and how each was caught.
-
-MIT License.
-
