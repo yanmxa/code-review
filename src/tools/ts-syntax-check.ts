@@ -5,10 +5,9 @@ import { defineReviewTool, reviewTool } from "./spec.js";
 /**
  * Typecheck a changed TypeScript/JavaScript file.
  *
- * This exists as much to demonstrate the extension point as to catch bugs: it is
- * the "add a typecheck tool" case from the brief, and it required no change to
- * the pipeline, prompt assembly, or grading — only this file and one line in
- * `tools/index.ts`.
+ * It exists as much to demonstrate the extension point as to catch bugs: adding
+ * it required no change to the pipeline, prompt assembly, or grading — only
+ * this file and one line in `tools/index.ts`.
  *
  * Safety: the file is fetched over HTTPS into memory and handed to the
  * TypeScript compiler through a virtual `CompilerHost`. `noResolve` keeps the
