@@ -54,7 +54,7 @@ export const DEFAULT_CONFIG: Config = {
   fileContextLines: 2000,
   fileContextLinesSqueezed: 400,
   maxUnitDiffLines: 600,
-  runDir: join(homedir(), ".pi-review", "runs"),
+  runDir: join(homedir(), ".code-review", "runs"),
   fresh: false,
 };
 
@@ -117,7 +117,7 @@ export function loadConfigFile(path: string): ConfigOverrides {
 }
 
 export function userConfigPath(): string {
-  return join(homedir(), ".config", "pi-review", "config.json");
+  return join(homedir(), ".config", "code-review", "config.json");
 }
 
 export function projectConfigPath(cwd = process.cwd()): string {
@@ -138,10 +138,10 @@ export function formatModelRef(ref: ModelRef): string {
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ConfigOverrides {
   const overrides: ConfigOverrides = {};
   const budget: Partial<BudgetConfig> = {};
-  if (env.PI_REVIEW_BUDGET_CNY) budget.totalCny = Number(env.PI_REVIEW_BUDGET_CNY);
-  if (env.PI_REVIEW_USD_CNY) budget.usdToCny = Number(env.PI_REVIEW_USD_CNY);
+  if (env.CODE_REVIEW_BUDGET_CNY) budget.totalCny = Number(env.CODE_REVIEW_BUDGET_CNY);
+  if (env.CODE_REVIEW_USD_CNY) budget.usdToCny = Number(env.CODE_REVIEW_USD_CNY);
   if (Object.keys(budget).length > 0) overrides.budget = budget;
-  if (env.PI_REVIEW_MODEL) overrides.models = { primary: parseModelRef(env.PI_REVIEW_MODEL) };
-  if (env.PI_REVIEW_LANG === "zh" || env.PI_REVIEW_LANG === "en") overrides.lang = env.PI_REVIEW_LANG;
+  if (env.CODE_REVIEW_MODEL) overrides.models = { primary: parseModelRef(env.CODE_REVIEW_MODEL) };
+  if (env.CODE_REVIEW_LANG === "zh" || env.CODE_REVIEW_LANG === "en") overrides.lang = env.CODE_REVIEW_LANG;
   return overrides;
 }

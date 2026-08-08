@@ -5,7 +5,7 @@ import type { Redactor } from "../security/redactor.js";
 export interface MarkerComment {
   /** Provider-side id, used to update the summary comment in place. */
   id: string | number;
-  /** Fingerprint parsed out of the `<!-- pi-review:f:... -->` marker. */
+  /** Fingerprint parsed out of the `<!-- code-review:f:... -->` marker. */
   fingerprint?: string;
   isSummary: boolean;
 }
@@ -124,14 +124,14 @@ export function projectPath(target: Target): string {
   return `${target.owner}/${target.repo}`;
 }
 
-export const SUMMARY_MARKER = "<!-- pi-review:summary -->";
+export const SUMMARY_MARKER = "<!-- code-review:summary -->";
 
 export function findingMarker(fingerprint: string): string {
-  return `<!-- pi-review:f:${fingerprint} -->`;
+  return `<!-- code-review:f:${fingerprint} -->`;
 }
 
 export function parseMarker(body: string): { fingerprint?: string; isSummary: boolean } {
   if (body.includes(SUMMARY_MARKER)) return { isSummary: true };
-  const match = body.match(/<!-- pi-review:f:([a-f0-9]+) -->/);
+  const match = body.match(/<!-- code-review:f:([a-f0-9]+) -->/);
   return match?.[1] ? { fingerprint: match[1], isSummary: false } : { isSummary: false };
 }

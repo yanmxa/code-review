@@ -136,7 +136,7 @@ describe("Dashboard", () => {
     const { dashboard } = mount();
     const lines = dashboard.render(100);
     assertWithinWidth(lines, 100);
-    expect(lines.join("\n")).toContain("pi-review");
+    expect(lines.join("\n")).toContain("code-review");
   });
 
   it("shows the PR, the file list, and the budget once a run starts", () => {

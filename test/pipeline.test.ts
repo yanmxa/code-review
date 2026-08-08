@@ -14,7 +14,7 @@ import { FakePlatform, SAMPLE_DIFF, TEST_TARGET } from "./helpers/fake-platform.
 let runDir: string;
 
 beforeEach(() => {
-  runDir = mkdtempSync(join(tmpdir(), "pi-review-pipe-"));
+  runDir = mkdtempSync(join(tmpdir(), "code-review-pipe-"));
 });
 afterEach(() => {
   rmSync(runDir, { recursive: true, force: true });

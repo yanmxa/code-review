@@ -180,7 +180,7 @@ export class GitHubAdapter implements PlatformAdapter {
     const headers: Record<string, string> = {
       Accept: accept,
       "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "pi-review",
+      "User-Agent": "code-review",
       "Content-Type": "application/json",
     };
     if (this.token) headers.Authorization = `Bearer ${this.token}`;

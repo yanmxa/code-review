@@ -236,14 +236,14 @@ export function renderPostSummary(
   const lines =
     lang === "zh"
       ? [
-          `## 🔍 pi-review 代码评审`,
+          `## 🔍 code-review 代码评审`,
           renderSummary(input, adoptable, reference),
           `本次回评 ${posting.inline} 条行内评论` +
             (posting.skippedAsDuplicate > 0 ? `，另有 ${posting.skippedAsDuplicate} 条此前已评论过，未重复发布。` : "。"),
           `花费 ${formatSpend(input.state.spend, input.budgetTotalCny)}。`,
         ]
       : [
-          `## 🔍 pi-review`,
+          `## 🔍 code-review`,
           renderSummary(input, adoptable, reference),
           `Posted ${posting.inline} inline comment(s)` +
             (posting.skippedAsDuplicate > 0

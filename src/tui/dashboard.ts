@@ -182,7 +182,7 @@ export class Dashboard implements Component {
 
     const title = target
       ? `${theme.accent(GLYPH.brand)} ${theme.strong(`${target.owner}/${target.repo}`)} ${theme.accent(`#${target.number}`)} ${theme.text(clip(meta?.title ?? "", Math.max(10, width - 40)))}`
-      : `${theme.accent(GLYPH.brand)} ${theme.strong("pi-review")} ${theme.dim("starting…")}`;
+      : `${theme.accent(GLYPH.brand)} ${theme.strong("code-review")} ${theme.dim("starting…")}`;
 
     const branch = meta
       ? theme.dim(`${meta.sourceBranch} → ${meta.targetBranch}`) +

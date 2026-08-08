@@ -1,19 +1,21 @@
 {
-  "name": "pi-review",
+  "name": "code-review",
   "version": "0.1.0",
-  "description": "Code Review Agent built on the pi framework — resumable, budget-aware, observable, evidence-graded PR review with a TUI",
+  "description": "Code Review Agent built on the pi framework \u2014 resumable, budget-aware, observable, evidence-graded PR review with a TUI",
   "type": "module",
   "license": "MIT",
   "engines": {
     "node": ">=22"
   },
   "bin": {
-    "pi-review": "dist/cli.js"
+    "code-review": "dist/cli.js"
   },
   "files": [
     "dist",
     "README.md",
-    "docs"
+    "README.zh.md",
+    "docs",
+    "examples"
   ],
   "scripts": {
     "dev": "tsx src/cli.ts",

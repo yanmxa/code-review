@@ -83,7 +83,7 @@ export async function runDashboard(options: DashboardOptions): Promise<RunOutcom
   return outcome;
 }
 
-/** Reopen a finished run's findings — `pi-review triage <run-id>`. */
+/** Reopen a finished run's findings — `code-review triage <run-id>`. */
 export async function browseRun(runDir: string, config: Config): Promise<void> {
   const state = JSON.parse(readFileSync(join(runDir, "state.json"), "utf8")) as RunState;
   const snapshot = JSON.parse(readFileSync(join(runDir, "pr.json"), "utf8")) as PrSnapshot;

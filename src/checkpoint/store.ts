@@ -283,7 +283,7 @@ export interface RunSummary {
   spendCny: number;
 }
 
-/** Enumerate checkpointed runs, newest first — backs `pi-review runs`. */
+/** Enumerate checkpointed runs, newest first — backs `code-review runs`. */
 export function listRuns(runDir: string): RunSummary[] {
   let entries: string[];
   try {

@@ -12,7 +12,7 @@ import { FakePlatform, SAMPLE_DIFF, TEST_TARGET } from "./helpers/fake-platform.
 let runDir: string;
 
 beforeEach(() => {
-  runDir = mkdtempSync(join(tmpdir(), "pi-review-post-"));
+  runDir = mkdtempSync(join(tmpdir(), "code-review-post-"));
 });
 afterEach(() => {
   rmSync(runDir, { recursive: true, force: true });
@@ -138,7 +138,7 @@ describe("comment bodies", () => {
     const findings = [finding()];
     const { adapter, snapshot, store, report } = await harness(findings);
     await postFindings({ adapter, snapshot, store, findings, report, lang: "en" });
-    expect(adapter.posted[0]?.comments[0]?.body).toContain("<!-- pi-review:f:aaaaaaaaaa -->");
+    expect(adapter.posted[0]?.comments[0]?.body).toContain("<!-- code-review:f:aaaaaaaaaa -->");
   });
 
   it("shows machine-checkable evidence but not raw model reasoning", async () => {
@@ -163,7 +163,7 @@ describe("comment bodies", () => {
     const findings = [finding()];
     const { adapter, snapshot, store, report } = await harness(findings);
     await postFindings({ adapter, snapshot, store, findings, report, lang: "en" });
-    expect(adapter.posted[0]?.summary).toContain("<!-- pi-review:summary -->");
+    expect(adapter.posted[0]?.summary).toContain("<!-- code-review:summary -->");
   });
 });
 

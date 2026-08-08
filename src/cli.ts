@@ -28,13 +28,13 @@ import { theme } from "./tui/theme.js";
 import type { RunEvent } from "./types.js";
 
 const USAGE = `
-${theme.accent("pi-review")} — code review agent for GitHub / GitLab pull requests
+${theme.accent("code-review")} — code review agent for GitHub / GitLab pull requests
 
 ${theme.strong("Usage")}
-  pi-review <pr-url> [options]
-  pi-review runs                    list checkpointed runs
-  pi-review triage <run-id>         reopen the findings browser for a finished run
-  pi-review trace <run-id> <unit>   print a unit's trace
+  code-review <pr-url> [options]
+  code-review runs                    list checkpointed runs
+  code-review triage <run-id>         reopen the findings browser for a finished run
+  code-review trace <run-id> <unit>   print a unit's trace
 
 ${theme.strong("Options")}
   --budget <cny>        total budget for this review          (default ${DEFAULT_CONFIG.budget.totalCny})
@@ -53,7 +53,7 @@ ${theme.strong("Credentials")}
   GitLab    GITLAB_TOKEN
   Model     OPENAI_API_KEY / MOONSHOT_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY
 
-${theme.dim("Config: ~/.config/pi-review/config.json, then ./review.config.json, then env, then flags.")}
+${theme.dim("Config: ~/.config/code-review/config.json, then ./review.config.json, then env, then flags.")}
 `;
 
 async function main(argv: string[]): Promise<number> {
@@ -204,9 +204,9 @@ function commandRuns(config: Config): number {
 }
 
 async function commandTriage(config: Config, runId: string | undefined): Promise<number> {
-  if (!runId) throw new Error("Usage: pi-review triage <run-id>");
+  if (!runId) throw new Error("Usage: code-review triage <run-id>");
   const dir = findRunDir(config.runDir, runId);
-  if (!dir) throw new Error(`No run matching "${runId}". Try: pi-review runs`);
+  if (!dir) throw new Error(`No run matching "${runId}". Try: code-review runs`);
 
   const { browseRun } = await import("./tui/app.js");
   await browseRun(dir, config);
@@ -214,9 +214,9 @@ async function commandTriage(config: Config, runId: string | undefined): Promise
 }
 
 function commandTrace(config: Config, runId: string | undefined, unitId: string | undefined): number {
-  if (!runId || !unitId) throw new Error("Usage: pi-review trace <run-id> <unit-id>");
+  if (!runId || !unitId) throw new Error("Usage: code-review trace <run-id> <unit-id>");
   const dir = findRunDir(config.runDir, runId);
-  if (!dir) throw new Error(`No run matching "${runId}". Try: pi-review runs`);
+  if (!dir) throw new Error(`No run matching "${runId}". Try: code-review runs`);
 
   const relative = unitId.startsWith("traces/")
     ? unitId
@@ -235,7 +235,7 @@ main(process.argv.slice(2))
   .then((code) => process.exit(code))
   .catch((error: Error) => {
     process.stderr.write(theme.danger(`\n${error.message}\n`));
-    if (process.env.PI_REVIEW_DEBUG) process.stderr.write(`${error.stack}\n`);
+    if (process.env.CODE_REVIEW_DEBUG) process.stderr.write(`${error.stack}\n`);
     process.exit(1);
   });
 

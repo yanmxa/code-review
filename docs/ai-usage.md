@@ -68,7 +68,7 @@ AI 的实现直接信任 `usage.cost.total`。但 faux provider（以及一些�
 
 ### 2.6 `browseRun` 读磁盘时忘了去重
 
-`findings.jsonl` 是追加写的（这正是它崩溃安全的原因），所以续跑会让同一个单元的 findings 出现两次。pipeline 结尾有 `dedupe()`，但 `browseRun`（`pi-review triage`）直接把文件内容喂给了 TUI。
+`findings.jsonl` 是追加写的（这正是它崩溃安全的原因），所以续跑会让同一个单元的 findings 出现两次。pipeline 结尾有 `dedupe()`，但 `browseRun`（`code-review triage`）直接把文件内容喂给了 TUI。
 
 **怎么发现的**：拿真实运行的数据渲染 TUI 截图时，肉眼看到重复条目。
 

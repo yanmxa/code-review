@@ -18,7 +18,7 @@ const TARGET: Target = {
 let runDir: string;
 
 beforeEach(() => {
-  runDir = mkdtempSync(join(tmpdir(), "pi-review-test-"));
+  runDir = mkdtempSync(join(tmpdir(), "code-review-test-"));
 });
 afterEach(() => {
   rmSync(runDir, { recursive: true, force: true });

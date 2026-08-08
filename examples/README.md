@@ -1,6 +1,6 @@
 # 产物示例 / Sample artifacts
 
-这些文件来自对 [yanmxa/pi-review-demo#1](https://github.com/yanmxa/pi-review-demo/pull/1)
+这些文件来自对 [yanmxa/code-review#1](https://github.com/yanmxa/code-review/pull/1)
 的一次真实运行，未经编辑。
 
 | 文件 | 是什么 |

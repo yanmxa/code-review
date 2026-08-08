@@ -146,7 +146,7 @@ export class GitLabAdapter implements PlatformAdapter {
     const headers: Record<string, string> = {
       Accept: "application/json",
       "Content-Type": "application/json",
-      "User-Agent": "pi-review",
+      "User-Agent": "code-review",
     };
     if (this.token) headers["PRIVATE-TOKEN"] = this.token;
     return headers;
