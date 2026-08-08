@@ -19,6 +19,8 @@ interface Rule {
   /** Only fires on files matching this, when present. */
   files?: RegExp;
   pattern: RegExp;
+  /** A second pattern that must also match. Keeps compound rules readable. */
+  requires?: RegExp;
   /** Suppress on lines matching this — the cheap way to kill known false positives. */
   unless?: RegExp;
   title: { zh: string; en: string };
@@ -86,19 +88,28 @@ const RULES: Rule[] = [
   {
     id: "insecure-random",
     severity: "major",
-    pattern:
-      /(Math\.random\s*\(\s*\)|random\.(random|randint|choice)\s*\()[\s\S]{0,80}?(token|secret|password|key|nonce|salt|session|otp)/i,
-    title: { zh: "用非密码学随机数生成凭据", en: "Non-cryptographic randomness for a credential" },
+    pattern: /(Math\.random\s*\(\s*\)|random\.(random|randint|choice)\s*\()/,
+    // Either an explicit credential word, or the `toString(36)` idiom that is
+    // used almost exclusively to mint ids. The credential word is frequently on
+    // the enclosing function's line rather than this one, which is why the
+    // idiom carries the rule on its own.
+    requires: /(token|secret|password|passwd|nonce|salt|session|otp|api[_-]?key|\.toString\s*\(\s*(16|36)\s*\))/i,
+    unless: /\btest|spec|mock|jitter|backoff|sample|shuffle\b/i,
+    title: { zh: "用非密码学随机数生成标识符", en: "Non-cryptographic randomness for an identifier" },
     body: {
-      zh: "`Math.random()` / `random` 模块是可预测的，不能用于生成 token、密码、nonce 或 salt。请使用 `crypto.randomUUID()`、`crypto.getRandomValues()` 或 `secrets` 模块。",
-      en: "`Math.random()` and the `random` module are predictable and must not generate tokens, passwords, nonces, or salts. Use `crypto.randomUUID()`, `crypto.getRandomValues()`, or Python's `secrets`.",
+      zh: "`Math.random()` / `random` 模块的输出是可预测的。如果这个值被用作 session token、密码、nonce 或 salt，攻击者可以推算出它——请改用 `crypto.randomUUID()`、`crypto.getRandomValues()` 或 Python 的 `secrets`。若仅作非安全用途的标识符，可以忽略本条。",
+      en: "`Math.random()` and the `random` module produce predictable output. If this value is used as a session token, password, nonce, or salt, an attacker can derive it — use `crypto.randomUUID()`, `crypto.getRandomValues()`, or Python's `secrets`. Ignore this if the value is only a non-security identifier.",
     },
   },
   {
     id: "sql-string-concat",
     severity: "blocker",
+    // The character class must allow quotes: real concatenation always closes a
+    // string literal before the `+`, so excluding quotes made this rule match
+    // nothing it was written for.
     pattern:
-      /(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b[^;'"`]*(\+\s*\w+|\$\{|%\s*[\w(]|\.format\s*\()/i,
+      /(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|WHERE)\b[^;]{0,200}?(["'`]\s*(\+|\.)\s*\w|\$\{|%\s*\(?\s*\w|\.format\s*\()/i,
+    unless: /^\s*(\/\/|\*|#|--)/,
     title: { zh: "SQL 语句拼接变量", en: "SQL built by string concatenation" },
     body: {
       zh: "把变量拼进 SQL 会引入注入风险。请使用参数化查询（占位符 + 参数数组），而不是字符串拼接或模板串。",
@@ -171,6 +182,10 @@ export function runRules(unit: ReviewUnit, lang: Language): RuleHit[] {
       if (rule.unless?.test(text)) continue;
       rule.pattern.lastIndex = 0;
       if (!rule.pattern.test(text)) continue;
+      if (rule.requires) {
+        rule.requires.lastIndex = 0;
+        if (!rule.requires.test(text)) continue;
+      }
       hits.push({
         ruleId: rule.id,
         path: unit.path,
