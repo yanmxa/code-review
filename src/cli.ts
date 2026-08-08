@@ -19,8 +19,10 @@ import {
   resolveConfig,
   userConfigPath,
 } from "./config.js";
+import { authStatus, terminalInteraction } from "./auth/login.js";
+import { FileCredentialStore } from "./auth/credential-store.js";
 import { parseTarget } from "./platform/adapter.js";
-import { executeRun } from "./run.js";
+import { createModelRegistry, executeRun, KNOWN_PROVIDERS, providerForLogin } from "./run.js";
 import { Tracer } from "./trace/tracer.js";
 import { createPlainRenderer } from "./tui/plain.js";
 import { runDashboard } from "./tui/app.js";
@@ -51,7 +53,9 @@ ${theme.strong("Options")}
 ${theme.strong("Credentials")}
   GitHub    GITHUB_TOKEN, or an authenticated \`gh\`
   GitLab    GITLAB_TOKEN
-  Model     OPENAI_API_KEY / MOONSHOT_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY
+  Model     a subscription via \`code-review login\`, or an API key in the
+            environment: OPENAI_API_KEY / MOONSHOT_API_KEY / ANTHROPIC_API_KEY /
+            OPENROUTER_API_KEY
 
 ${theme.dim("Config: ~/.config/code-review/config.json, then ./review.config.json, then env, then flags.")}
 `;
@@ -89,6 +93,12 @@ async function main(argv: string[]): Promise<number> {
       return commandTriage(config, rest[0]);
     case "trace":
       return commandTrace(config, rest[0], rest[1]);
+    case "login":
+      return commandLogin(rest[0]);
+    case "logout":
+      return commandLogout(rest[0]);
+    case "auth":
+      return commandAuth();
     default:
       return commandReview(config, command as string, values);
   }
@@ -181,6 +191,59 @@ function exitCodeFor(
   if (hardStopped) return 3;
   if (failOn === "adoptable" && findings.some((f) => f.confidence === "adoptable")) return 2;
   if (failOn === "any" && findings.length > 0) return 2;
+  return 0;
+}
+
+/**
+ * Sign in to a provider that bills through a subscription rather than a key.
+ *
+ * The OAuth flow prints a URL, waits for the browser round-trip, and stores the
+ * resulting credential in ~/.code-review/auth.json (mode 0600).
+ */
+async function commandLogin(providerId = "openai-codex"): Promise<number> {
+  const models = await providerForLogin(providerId);
+  const credential = await models.login(providerId, "oauth", terminalInteraction());
+
+  process.stdout.write(
+    `\n${theme.ok("✓")} Signed in to ${theme.accent(providerId)} (${credential.type}).\n` +
+      theme.dim(`  Credential stored in ${new FileCredentialStore().path}\n`) +
+      theme.dim(`  Use it with:  code-review <pr-url> --model ${providerId}/gpt-5.4\n`),
+  );
+  return 0;
+}
+
+async function commandLogout(providerId: string | undefined): Promise<number> {
+  if (!providerId) throw new Error(`Usage: code-review logout <${KNOWN_PROVIDERS.join("|")}>`);
+  await new FileCredentialStore().delete(providerId);
+  process.stdout.write(`${theme.dim(`Forgot the stored credential for ${providerId}.`)}\n`);
+  return 0;
+}
+
+/** Show what is configured, so a failing run has an obvious first thing to check. */
+async function commandAuth(): Promise<number> {
+  let models;
+  try {
+    models = await createModelRegistry();
+  } catch (error) {
+    process.stdout.write(`${theme.warn((error as Error).message)}\n`);
+    return 1;
+  }
+
+  const statuses = await authStatus(models, [...KNOWN_PROVIDERS]);
+  for (const status of statuses) {
+    if (!status.configured) continue;
+    const kind =
+      status.type === "oauth"
+        ? theme.ok("subscription (OAuth)")
+        : theme.dim(`api key${status.source ? ` · ${status.source}` : ""}`);
+    process.stdout.write(`${theme.accent(status.providerId.padEnd(16))} ${kind}\n`);
+  }
+  if (statuses.every((status) => !status.configured)) {
+    process.stdout.write(theme.dim("No model credentials configured.\n"));
+  }
+
+  const github = process.env.GITHUB_TOKEN ? "GITHUB_TOKEN" : "gh auth token";
+  process.stdout.write(`${theme.accent("github".padEnd(16))} ${theme.dim(github)}\n`);
   return 0;
 }
 

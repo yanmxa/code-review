@@ -83,7 +83,7 @@ export function createPlainRenderer(options: PlainOptions): (event: RunEvent) =>
       case "spend":
         write(
           theme.dim(
-            `    ${budgetGauge(event.fraction)} ${formatCny(event.ledger.cny)}/${formatCny(options.totalCny)} · ` +
+            `    ${budgetGauge(event.fraction)} ${event.notional ? "≈" : ""}${formatCny(event.ledger.cny)}/${formatCny(options.totalCny)} · ` +
               `${event.ledger.calls} call(s) · ${theme.model(`${event.model.provider}/${event.model.id}`)}`,
           ),
         );

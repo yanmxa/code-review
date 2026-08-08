@@ -7,6 +7,8 @@ import { GitLabAdapter, resolveGitLabToken } from "./platform/gitlab.js";
 import type { PlatformAdapter } from "./platform/adapter.js";
 import { renderReport, type ReportInput } from "./report/markdown.js";
 import { postFindings, type PostSummary } from "./report/post.js";
+import { FileCredentialStore } from "./auth/credential-store.js";
+import { isSubscriptionAuth } from "./auth/login.js";
 import { Redactor } from "./security/redactor.js";
 import type { Finding, PrSnapshot, RunEvent, RunEventSink, SkipReason, Target } from "./types.js";
 import { planUnits } from "./engine/units.js";
@@ -40,9 +42,15 @@ export interface RunOutcome {
 export async function executeRun(options: RunOptions): Promise<RunOutcome> {
   const { target, config } = options;
 
-  const redactor = new Redactor().seedFromEnv();
+  const credentials = new FileCredentialStore();
+  // Stored OAuth tokens are live credentials. Seeding them means an accidental
+  // echo can never reach a prompt, a trace, or a checkpoint.
+  const redactor = new Redactor().seedFromEnv().seed(...credentials.secrets());
   const adapter = await createAdapter(target, redactor);
-  const models = await createModelRegistry();
+  const models = await createModelRegistry(process.env, credentials);
+  // A subscription bills nothing per call, so anything the budget reports is a
+  // list-price estimate. Detect it once and label every surface accordingly.
+  const notionalSpend = await isSubscriptionAuth(models, config.models.primary.provider);
 
   const budgetEvents: { kind: string; detail: string }[] = [];
   const emit: RunEventSink = (event: RunEvent) => {
@@ -56,6 +64,7 @@ export async function executeRun(options: RunOptions): Promise<RunOutcome> {
     redactor,
     config,
     emit,
+    notionalSpend,
     signal: options.signal,
   });
 
@@ -68,6 +77,7 @@ export async function executeRun(options: RunOptions): Promise<RunOutcome> {
     budgetTotalCny: config.budget.totalCny,
     redactionStats: redactor.stats(),
     budgetEvents,
+    notionalSpend,
     skipped: [
       ...skipped.map((entry) => ({ path: entry.path, reason: entry.reason })),
       ...result.store.current.units
@@ -133,30 +143,47 @@ export async function createAdapter(target: Target, redactor: Redactor): Promise
 /**
  * Build the model registry.
  *
- * Providers are imported lazily and only when a key exists for them: loading a
- * provider pulls in its SDK, and a missing key would surface as a confusing
- * auth error mid-run rather than a clear one at startup.
+ * Two credential paths, both supported:
+ *  - **API key** from the environment — metered per token.
+ *  - **OAuth** stored by `code-review login` — a ChatGPT/Claude subscription,
+ *    where calls are covered by the plan rather than billed per token.
+ *
+ * Providers backed by a key are only registered when that key exists: loading a
+ * provider pulls in its SDK, and a missing key would otherwise surface as a
+ * confusing auth error mid-run instead of a clear one at startup. OAuth-backed
+ * providers are registered whenever a stored credential exists.
  */
-export async function createModelRegistry(env: NodeJS.ProcessEnv = process.env): Promise<Models> {
-  const models: MutableModels = createModels();
+export async function createModelRegistry(
+  env: NodeJS.ProcessEnv = process.env,
+  credentials: FileCredentialStore = new FileCredentialStore(),
+): Promise<Models> {
+  const models: MutableModels = createModels({ credentials });
   const loaded: string[] = [];
 
-  if (env.OPENAI_API_KEY) {
+  const stored = new Set((await credentials.list()).map((entry) => entry.providerId));
+
+  if (env.OPENAI_API_KEY || stored.has("openai")) {
     const { openaiProvider } = await import("@earendil-works/pi-ai/providers/openai");
     models.setProvider(openaiProvider());
     loaded.push("openai");
   }
-  if (env.MOONSHOT_API_KEY) {
+  // Subscription access to the same OpenAI models, via a ChatGPT plan.
+  if (stored.has("openai-codex")) {
+    const { openaiCodexProvider } = await import("@earendil-works/pi-ai/providers/openai-codex");
+    models.setProvider(openaiCodexProvider());
+    loaded.push("openai-codex");
+  }
+  if (env.MOONSHOT_API_KEY || stored.has("moonshotai")) {
     const { moonshotaiProvider } = await import("@earendil-works/pi-ai/providers/moonshotai");
     models.setProvider(moonshotaiProvider());
     loaded.push("moonshotai");
   }
-  if (env.ANTHROPIC_API_KEY) {
+  if (env.ANTHROPIC_API_KEY || stored.has("anthropic")) {
     const { anthropicProvider } = await import("@earendil-works/pi-ai/providers/anthropic");
     models.setProvider(anthropicProvider());
     loaded.push("anthropic");
   }
-  if (env.OPENROUTER_API_KEY) {
+  if (env.OPENROUTER_API_KEY || stored.has("openrouter")) {
     const { openrouterProvider } = await import("@earendil-works/pi-ai/providers/openrouter");
     models.setProvider(openrouterProvider());
     loaded.push("openrouter");
@@ -164,9 +191,55 @@ export async function createModelRegistry(env: NodeJS.ProcessEnv = process.env):
 
   if (loaded.length === 0) {
     throw new Error(
-      "No LLM credentials found. Set one of OPENAI_API_KEY, MOONSHOT_API_KEY, ANTHROPIC_API_KEY, or OPENROUTER_API_KEY.",
+      "No model credentials found.\n" +
+        "  Subscription:  code-review login openai-codex   (uses your ChatGPT plan)\n" +
+        "  API key:       export OPENAI_API_KEY=…          (also MOONSHOT / ANTHROPIC / OPENROUTER)",
     );
   }
 
+  return models;
+}
+
+/** Providers this tool knows how to register, for `login` and `auth`. */
+export const KNOWN_PROVIDERS = [
+  "openai-codex",
+  "openai",
+  "anthropic",
+  "moonshotai",
+  "openrouter",
+] as const;
+
+/** Every provider that can be logged into interactively. */
+export async function providerForLogin(id: string): Promise<MutableModels> {
+  const models: MutableModels = createModels({ credentials: new FileCredentialStore() });
+  switch (id) {
+    case "openai-codex": {
+      const { openaiCodexProvider } = await import("@earendil-works/pi-ai/providers/openai-codex");
+      models.setProvider(openaiCodexProvider());
+      break;
+    }
+    case "openai": {
+      const { openaiProvider } = await import("@earendil-works/pi-ai/providers/openai");
+      models.setProvider(openaiProvider());
+      break;
+    }
+    case "anthropic": {
+      const { anthropicProvider } = await import("@earendil-works/pi-ai/providers/anthropic");
+      models.setProvider(anthropicProvider());
+      break;
+    }
+    case "moonshotai": {
+      const { moonshotaiProvider } = await import("@earendil-works/pi-ai/providers/moonshotai");
+      models.setProvider(moonshotaiProvider());
+      break;
+    }
+    case "openrouter": {
+      const { openrouterProvider } = await import("@earendil-works/pi-ai/providers/openrouter");
+      models.setProvider(openrouterProvider());
+      break;
+    }
+    default:
+      throw new Error(`Unknown provider "${id}". Known: ${KNOWN_PROVIDERS.join(", ")}`);
+  }
   return models;
 }

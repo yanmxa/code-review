@@ -246,3 +246,19 @@ describe("snapshot safety", () => {
     expect(JSON.stringify(snapshot)).not.toContain("AKIAIOSFODNN7EXAMPLE");
   });
 });
+
+describe("subscription spend labelling", () => {
+  it("marks the spend figure as an estimate when a subscription paid for the calls", async () => {
+    // Under a plan the provider bills nothing per call, so the ledger holds a
+    // list-price estimate. Presenting it as money charged would be a lie.
+    const { report } = await harness([]);
+    report.notionalSpend = true;
+    const markdown = renderReport(report);
+    expect(markdown).toContain("list-price estimate");
+  });
+
+  it("says nothing extra when an API key is paying per token", async () => {
+    const { report } = await harness([]);
+    expect(renderReport(report)).not.toContain("list-price estimate");
+  });
+});

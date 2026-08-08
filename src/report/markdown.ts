@@ -17,6 +17,8 @@ export interface ReportInput {
   budgetTotalCny: number;
   redactionStats: Record<string, number>;
   budgetEvents: { kind: string; detail: string }[];
+  /** Spend figures are list-price estimates, not money charged (subscription auth). */
+  notionalSpend?: boolean;
   skipped: { path: string; reason: Parameters<typeof skipLabel>[0] }[];
 }
 
@@ -76,7 +78,15 @@ function renderMetaTable(input: ReportInput): string {
     [lang === "zh" ? "分支" : "Branch", `\`${snapshot.meta.sourceBranch}\` → \`${snapshot.meta.targetBranch}\``],
     ["Head", `\`${state.headSha.slice(0, 10)}\``],
     [t("filesReviewed", lang), `${state.units.filter((unit) => unit.status === "done").length} / ${state.units.length}`],
-    [t("spendHeading", lang), formatSpend(state.spend, input.budgetTotalCny)],
+    [
+      t("spendHeading", lang),
+      formatSpend(state.spend, input.budgetTotalCny) +
+        (input.notionalSpend
+          ? lang === "zh"
+            ? "  \n_按 API 标价折算；实际调用由订阅覆盖，未产生按量计费_"
+            : "  \n_list-price estimate; the calls were covered by a subscription_"
+          : ""),
+    ],
     [t("modelsUsed", lang), Object.keys(state.spend.byModel).map((id) => `\`${id}\``).join(", ") || "—"],
     ["Run", `\`${state.runId}\``],
   ];

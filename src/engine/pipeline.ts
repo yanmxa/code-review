@@ -19,6 +19,13 @@ export interface PipelineDeps {
   redactor: Redactor;
   config: Config;
   emit: RunEventSink;
+  /**
+   * True when the active credential is a subscription rather than a metered API
+   * key. Under a plan the provider bills nothing per call, so every figure the
+   * budget reports is a list-price estimate — useful as a work limiter, but not
+   * money spent, and it must not be presented as such.
+   */
+  notionalSpend?: boolean;
   signal?: AbortSignal;
 }
 
@@ -67,6 +74,16 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
     hardStopped: false, // A resumed run gets a fresh chance; the ledger still applies.
   });
   budget.onEvent((event) => emit({ type: "budget", ...event }));
+
+  if (deps.notionalSpend) {
+    emit({
+      type: "notice",
+      level: "info",
+      text:
+        "Subscription credential in use — calls are covered by your plan. " +
+        "Spend below is a list-price estimate, not money charged; it still caps how much work runs.",
+    });
+  }
 
   emit({
     type: "run_start",
@@ -135,6 +152,7 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
       ledger: budget.spend,
       fraction: budget.fraction,
       model: budget.currentModel(),
+      notional: deps.notionalSpend ?? false,
     });
   }
 

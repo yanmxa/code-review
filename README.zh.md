@@ -166,6 +166,9 @@ code-review <pr-url> [options]      # 评审一个 PR
 code-review runs                    # 列出所有断点
 code-review triage <run-id>         # 重新打开某次运行的结果浏览器
 code-review trace <run-id> <unit>   # 打印某个单元的完整 trace
+code-review login [provider]        # 用订阅登录（默认 openai-codex）
+code-review logout <provider>       # 删除已存的凭据
+code-review auth                    # 查看当前配置了哪些凭据
 ```
 
 | 选项 | 说明 |
@@ -198,6 +201,23 @@ code-review trace <run-id> <unit>   # 打印某个单元的完整 trace
   "lang": "zh"
 }
 ```
+
+### 用订阅代替 API key
+
+`openai-codex` 通过 ChatGPT 订阅访问同样的 OpenAI 模型，调用由订阅覆盖，不按 token 计费：
+
+```bash
+code-review login openai-codex      # 走浏览器授权，凭据存到
+                                    # ~/.code-review/auth.json（权限 0600）
+code-review auth                    # 查看当前配置了哪些凭据
+code-review <pr-url> --model openai-codex/gpt-5.4
+```
+
+OAuth 流程本身是 pi 提供的；这里只补了终端交互和一个落盘的凭据存储——pi-ai 只提供内存版的。
+
+**订阅模式下有什么不同**：provider 不再报告单次调用的费用，预算改用 API 标价折算。
+它仍然限制工作量、仍然驱动降级链，但所有数字都会加 `≈` 前缀，报告里也会写明这些调用
+由订阅覆盖。它是**工作量上限，不是账单**。
 
 ---
 

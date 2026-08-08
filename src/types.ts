@@ -278,7 +278,7 @@ export type RunEvent =
   | { type: "tool_start"; unitId: string; name: string; summary: string }
   | { type: "tool_end"; unitId: string; name: string; summary: string; isError: boolean }
   | { type: "stream_delta"; unitId: string; text: string }
-  | { type: "spend"; ledger: SpendLedger; fraction: number; model: ModelRef }
+  | { type: "spend"; ledger: SpendLedger; fraction: number; model: ModelRef; notional: boolean }
   | { type: "budget"; kind: "downgrade" | "squeeze" | "hard_stop"; detail: string }
   | { type: "finding"; finding: Finding }
   | { type: "notice"; level: "info" | "warn" | "error"; text: string }

@@ -184,6 +184,9 @@ code-review <pr-url> [options]      # review a pull request
 code-review runs                    # list checkpointed runs
 code-review triage <run-id>         # reopen the findings browser for a finished run
 code-review trace <run-id> <unit>   # print a unit's full trace
+code-review login [provider]        # sign in with a subscription (default: openai-codex)
+code-review logout <provider>       # forget a stored credential
+code-review auth                    # show which credentials are configured
 ```
 
 | Option | Meaning |
@@ -218,6 +221,27 @@ results), `1` error.
   "lang": "en"
 }
 ```
+
+### Using a subscription instead of an API key
+
+`openai-codex` reaches the same OpenAI models through a ChatGPT plan, so calls
+are covered by the subscription rather than billed per token:
+
+```bash
+code-review login openai-codex      # opens a browser; the token is stored in
+                                    # ~/.code-review/auth.json (mode 0600)
+code-review auth                    # show what is configured
+code-review <pr-url> --model openai-codex/gpt-5.4
+```
+
+The OAuth flow itself is pi's — this tool supplies the terminal prompts and a
+file-backed credential store, because pi-ai ships only an in-memory one.
+
+**What changes under a subscription:** the provider reports no per-call cost, so
+the budget works from list prices instead. It still limits how much work runs
+and still drives the downgrade ladder, but every figure is prefixed `≈` and the
+report says plainly that the calls were covered by a plan. It is a work limiter,
+not a bill.
 
 ---
 

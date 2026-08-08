@@ -257,6 +257,7 @@ describe("Dashboard", () => {
         },
         fraction: 0.87,
         model: { provider: "openai", id: "gpt-5.4-nano" },
+        notional: false,
       });
       assertWithinWidth(dashboard.render(columns), columns);
     }

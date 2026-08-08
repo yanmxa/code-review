@@ -46,6 +46,7 @@ export class Dashboard implements Component {
   private model?: ModelRef;
   private spend?: SpendLedger;
   private fraction = 0;
+  private notional = false;
   private resumed = false;
   private readonly findings: Finding[] = [];
   private readonly activity: string[] = [];
@@ -128,6 +129,7 @@ export class Dashboard implements Component {
         this.spend = event.ledger;
         this.fraction = event.fraction;
         this.model = event.model;
+        this.notional = event.notional;
         break;
 
       case "budget":
@@ -191,7 +193,7 @@ export class Dashboard implements Component {
       : "";
 
     const gauge = this.spend
-      ? `${budgetGauge(this.fraction)} ${theme.strong(formatCny(this.spend.cny))}${theme.dim(`/${formatCny(this.totalCny)}`)}` +
+      ? `${budgetGauge(this.fraction)} ${theme.strong(`${this.notional ? "≈" : ""}${formatCny(this.spend.cny)}`)}${theme.dim(`/${formatCny(this.totalCny)}`)}` +
         theme.dim(
           ` · ↑${formatTokens(this.spend.inputTokens)} ↓${formatTokens(this.spend.outputTokens)}` +
             (this.spend.cacheReadTokens > 0 ? ` ⛁${formatTokens(this.spend.cacheReadTokens)}` : ""),
