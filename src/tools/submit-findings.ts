@@ -68,13 +68,15 @@ export const submitFindingsTool = defineReviewTool({
             certainty: Type.Optional(
               StringEnum(["certain", "likely", "unsure"], {
               description:
-                "How sure you are that this is really a problem. certain: you have seen enough to " +
-                "be sure. likely: it is probably wrong but you could not confirm every assumption. " +
-                "unsure: it looks off, and it could equally be deliberate or explained by code you " +
-                "did not read. This orders findings for the reader; it does not decide whether a " +
-                "finding is presented as directly adoptable, so answering honestly costs you " +
-                "nothing. \"unsure\" is a useful answer, not a failed one — say what you could not " +
-                "check in `reasoning`.",
+                "How sure you are that this is really a problem, judged by what could prove you " +
+                "wrong. certain: you read the code that would contradict this and it does not — " +
+                "anyone re-reading the same code would agree. likely: the diff strongly implies it, " +
+                "but you did not check everything that might explain it away. unsure: it could " +
+                "equally be deliberate, or accounted for by code you have not read. Most findings " +
+                "drawn from a diff alone are `likely` at best; reserve `certain` for the ones you " +
+                "actually went and checked. This orders findings for the reader and does not decide " +
+                "whether one is presented as directly adoptable, so answering honestly costs you " +
+                "nothing — and say in `reasoning` what you could not check.",
               }),
             ),
           }),

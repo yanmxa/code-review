@@ -1,4 +1,4 @@
-import { type Component, Key, matchesKey, type TUI } from "@earendil-works/pi-tui";
+import { type Component, Key, matchesKey, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import type { Language } from "../config.js";
 import { certaintyLabel, confidenceLabel, severityLabel } from "../i18n/messages.js";
 import type { Confidence, DiffFile, Evidence, Finding } from "../types.js";
@@ -14,14 +14,27 @@ type Row = { kind: "header"; label: string; tier: Confidence } | { kind: "findin
  *
  * An adoptable finding is backed by something anyone can re-derive, so the
  * model's opinion of it adds nothing and "拿不准" beside a compiler diagnostic
- * would be actively confusing. Inside the reference group it is the only thing
- * separating four otherwise equal-looking claims. "certain" stays unmarked so
- * the mark means "read this one more carefully", not decoration.
+ * would be doubt about a fact. Inside the reference group it is the only thing
+ * separating claims that otherwise look identical.
  */
 function certaintyNote(finding: Finding, lang: Language): string {
   if (finding.confidence !== "reference") return "";
-  if (!finding.certainty || finding.certainty === "certain") return "";
-  return theme.dim(` · ${certaintyLabel(finding.certainty, lang)}`);
+  // Every row in the group carries one. Marking only the doubtful ones left the
+  // reader unable to tell "the model was sure" from "the model said nothing",
+  // which is the difference the mark exists to report.
+  const certainty = finding.certainty ?? "unsure";
+  const paint = certainty === "certain" ? theme.text : certainty === "likely" ? theme.dim : theme.warn;
+  return theme.dim(" · ") + paint(certaintyLabel(certainty, lang));
+}
+
+/** A named divider, so no block of text is left for the reader to classify. */
+function section(title: string, width: number): string[] {
+  const rule = "─".repeat(Math.max(0, width - visibleWidth(title) - 3));
+  return ["", theme.dim(`${title} ${rule}`)];
+}
+
+function padEnd(text: string, width: number): string {
+  return text + " ".repeat(Math.max(0, width - visibleWidth(text)));
 }
 
 export interface TriageActions {
@@ -149,9 +162,14 @@ export class TriagePanel implements Component {
       const isCursor = i === this.cursor;
       const checkbox = this.selected.has(finding.fingerprint) ? theme.ok("[x]") : theme.dim("[ ]");
       const location = `${finding.path.split("/").pop()}:${finding.line}`;
-      const label =
-        `${checkbox} ${confidenceGlyph(finding.confidence)} ${severityStyle(finding.severity)(location)} ` +
-        `${finding.title}${certaintyNote(finding, this.lang)}`;
+      const head = `${checkbox} ${confidenceGlyph(finding.confidence)} ${severityStyle(finding.severity)(location)} `;
+      // The mark is placed against the right edge and the title clipped to fit.
+      // Appended after the title it was the first thing a long title pushed off
+      // the row — losing exactly the column the reader is scanning.
+      const mark = certaintyNote(finding, this.lang);
+      const room = width - 1 - visibleWidth(head) - visibleWidth(mark);
+      const title = clip(finding.title, Math.max(4, room));
+      const label = head + title + " ".repeat(Math.max(0, room - visibleWidth(title))) + mark;
 
       out.push(
         isCursor
@@ -162,54 +180,69 @@ export class TriagePanel implements Component {
     return out;
   }
 
+  /**
+   * One finding, in the order the questions get asked.
+   *
+   * *What is it* (title), *where and how much should I trust it* (a labelled
+   * facts block), then *why* — the reviewer's own words, the code they are
+   * about, the fix, and what backs the claim. Every section is named: an
+   * unlabelled paragraph of prose between two code blocks made the reader work
+   * out for themselves which part was the argument and which was the evidence.
+   * The trace sits alone at the foot, below a rule, because it leaves this
+   * screen rather than continuing it.
+   */
   private renderDetail(width: number, height: number): string[] {
     const row = this.rows[this.cursor];
     if (!row || row.kind !== "finding") {
       return [theme.dim(this.lang === "zh" ? "选择一条发现查看详情。" : "Select a finding to see its detail.")];
     }
     const finding = row.finding;
+    const zh = this.lang === "zh";
     const out: string[] = [];
 
+    out.push(theme.strong(clip(finding.title, width)));
+    out.push("");
+
+    const label = (text: string) => theme.dim(padEnd(text, zh ? 8 : 12));
+    out.push(label(zh ? "文件" : "File") + theme.accent(clip(`${finding.path}:${finding.line}`, width - 12)));
+    out.push(label(zh ? "严重级" : "Severity") + severityStyle(finding.severity)(severityLabel(finding.severity, this.lang)));
     out.push(
-      `${confidenceGlyph(finding.confidence)} ${theme.strong(clip(finding.title, width - 2))}`,
-    );
-    out.push(
-      theme.dim(`${finding.id} · `) +
-        severityStyle(finding.severity)(severityLabel(finding.severity, this.lang)) +
-        theme.dim(` · ${confidenceLabel(finding.confidence, this.lang)}`) +
+      label(zh ? "置信度" : "Confidence") +
+        confidenceGlyph(finding.confidence) +
+        ` ${confidenceLabel(finding.confidence, this.lang)}` +
         certaintyNote(finding, this.lang),
     );
-    out.push(theme.accent(clip(`${finding.path}:${finding.line}`, width)));
-    out.push("");
-    out.push(...wrap(finding.body, width).map((line) => theme.text(line)));
+
+    out.push(...section(zh ? "说明" : "What is wrong", width));
+    out.push(...wrap(finding.body, width - 2).map((line) => `  ${theme.text(line)}`));
 
     // The code being talked about, before anything is proposed for it. A
     // suggested replacement with nothing to compare against asks the reader to
     // leave and go find the file, which is most of the work of reviewing.
     const excerpt = this.excerptFor(finding);
     if (excerpt.length > 0) {
-      out.push("");
-      out.push(theme.dim(this.lang === "zh" ? "改动前后" : "In the diff"));
+      out.push(...section(zh ? "改动" : "In the diff", width));
       for (const entry of excerpt) {
         const marker = entry.kind === "add" ? "+" : entry.kind === "del" ? "-" : " ";
         const number = entry.line === undefined ? "    " : String(entry.line).padStart(4);
-        const paint =
-          entry.kind === "add" ? theme.ok : entry.kind === "del" ? theme.danger : theme.dim;
+        const paint = entry.kind === "add" ? theme.ok : entry.kind === "del" ? theme.danger : theme.dim;
         const body = `${number} ${marker}${entry.text}`;
-        out.push(entry.anchored ? theme.accent("▸") + paint(clip(body, width - 1)) : ` ${paint(clip(body, width - 1))}`);
+        out.push(
+          entry.anchored
+            ? theme.accent("▸") + paint(clip(body, width - 1))
+            : ` ${paint(clip(body, width - 1))}`,
+        );
       }
     }
 
     if (finding.suggestion) {
-      out.push("");
-      out.push(theme.dim(this.lang === "zh" ? "建议改法" : "Suggested change"));
+      out.push(...section(zh ? "建议改法" : "Suggested change", width));
       for (const line of finding.suggestion.split("\n")) {
         out.push(theme.ok(`  ${clip(line, width - 2)}`));
       }
     }
 
-    out.push("");
-    out.push(theme.dim(this.lang === "zh" ? "证据" : "Evidence"));
+    out.push(...section(zh ? "证据" : "Evidence", width));
     for (const evidence of finding.evidence) {
       const glyph = evidence.kind === "llm" ? theme.warn("○") : theme.ok("●");
       for (const [index, line] of wrap(describeEvidence(evidence, this.lang), width - 4).entries()) {
@@ -217,11 +250,14 @@ export class TriagePanel implements Component {
       }
     }
 
-    out.push("");
-    const openTrace = this.lang === "zh" ? "查看 trace" : "open trace";
-    out.push(theme.dim(`${GLYPH.tool} ${finding.tracePath}   ${theme.accent("t")} ${theme.dim(openTrace)}`));
-
-    return out.slice(0, height);
+    const footer = [
+      theme.dim("─".repeat(Math.max(0, width))),
+      `${theme.accent("t")} ${theme.dim(zh ? "查看完整 trace" : "open full trace")}   ` +
+        theme.dim(clip(finding.tracePath, Math.max(0, width - 20))),
+    ];
+    const body = out.slice(0, Math.max(0, height - footer.length));
+    const gap = Math.max(0, height - footer.length - body.length);
+    return [...body, ...Array<string>(gap).fill(""), ...footer];
   }
 
   private renderFooter(width: number): string[] {

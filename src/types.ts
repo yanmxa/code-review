@@ -290,7 +290,7 @@ export interface RunState {
 
 export type RunEvent =
   | { type: "run_start"; snapshot: PrSnapshot; units: ReviewUnit[]; resumed: boolean; model: ModelRef }
-  | { type: "unit_start"; unitId: string }
+  | { type: "unit_start"; unitId: string; /** 1-based position in the full unit list. */ index: number }
   | { type: "unit_end"; unitId: string; status: UnitStatus; findings: number; skipReason?: SkipReason }
   | { type: "tool_start"; unitId: string; name: string; summary: string }
   | { type: "tool_end"; unitId: string; name: string; summary: string; isError: boolean }

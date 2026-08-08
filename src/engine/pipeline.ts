@@ -106,6 +106,21 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
     model: budget.currentModel(),
   });
 
+  // Say what is being counted, and how much of it is already gone, before the
+  // first call rather than after it. Renderers learn the budget's unit from
+  // spend events, so a run whose money limit had become a token limit opened on
+  // a currency gauge that could not move, and a resumed run opened on a zero it
+  // was about to contradict.
+  emit({
+    type: "spend",
+    ledger: budget.spend,
+    fraction: budget.fraction,
+    model: budget.currentModel(),
+    unit: budget.unit,
+    limit: budget.limit,
+    spent: budget.spent,
+  });
+
   for (const skip of skipped) {
     emit({ type: "unit_end", unitId: skip.id, status: "skipped", findings: 0, skipReason: skip.reason });
   }
@@ -150,7 +165,7 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
     }
     if (deps.signal?.aborted) break;
 
-    emit({ type: "unit_start", unitId: unit.id });
+    emit({ type: "unit_start", unitId: unit.id, index: units.indexOf(unit) + 1 });
     store.markUnit(unit.id, { status: "in_progress", attempts: state.attempts + 1 });
 
     const reviewed = await reviewOneUnit(unit, {

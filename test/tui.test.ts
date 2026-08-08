@@ -7,6 +7,7 @@ import { TriagePanel } from "../src/tui/triage.js";
 import { clip, spread, windowAround, wrap } from "../src/tui/widgets.js";
 import type { Finding, PrSnapshot, ReviewUnit, TraceEvent } from "../src/types.js";
 import { FakeTerminal } from "./helpers/fake-terminal.js";
+import { createPlainRenderer } from "../src/tui/plain.js";
 
 function snapshot(): PrSnapshot {
   return {
@@ -235,7 +236,7 @@ describe("Dashboard", () => {
         resumed: true,
         model: { provider: "openai", id: "gpt-5.4" },
       });
-      dashboard.handle({ type: "unit_start", unitId: "src/very/deeply/nested/path/to/a/file/with/a/long/name.ts" });
+      dashboard.handle({ type: "unit_start", index: 1, unitId: "src/very/deeply/nested/path/to/a/file/with/a/long/name.ts" });
       dashboard.handle({
         type: "tool_start",
         unitId: "x",
@@ -410,3 +411,14 @@ describe("TraceView", () => {
     }
   });
 });
+
+describe("the plain renderer's progress counter", () => {
+  it("keeps its place across a resume", () => {
+    // A locally-incremented counter restarted at 1 on a resumed run, so the
+    // third file announced itself as "[1/4]".
+    const lines: string[] = [];
+    const render = createPlainRenderer({ lang: "en", write: (line: string) => lines.push(line) });
+    render({ type: "unit_start", unitId: "c.ts", index: 3 });
+    expect(lines.join("\n")).toContain("[3/");
+  });
+})

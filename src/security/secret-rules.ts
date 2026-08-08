@@ -48,6 +48,17 @@ export const SECRET_RULES: SecretRule[] = [
       /\b(?:pass(?:wo?rd)?|secret|token|api[_-]?key|apikey|access[_-]?key|auth|credential)s?\s*[:=]\s*["'`]([^"'`\n]{6,})["'`]/gi,
     group: 1,
   },
+  // The same idea in camelCase, which the rule above cannot see: `\b` needs a
+  // non-word character before the keyword, and there is none in the middle of
+  // `awsSecretAccessKey`. Deliberately case-sensitive — with the `i` flag the
+  // trailing `(?![a-z])` would also reject uppercase, and that guard is what
+  // keeps `authorName` and `tokenizer` out of it.
+  {
+    id: "generic-assignment-camel",
+    pattern:
+      /[A-Za-z0-9_$]*?(?:Pass(?:wo?rd)?|Secret|Token|Api[_-]?Key|ApiKey|Access[_-]?Key|Auth|Credential)(?![a-z])[A-Za-z0-9_$]*\s*[:=]\s*["'`]([^"'`\n]{6,})["'`]/g,
+    group: 1,
+  },
   {
     id: "generic-env",
     pattern:
@@ -104,8 +115,19 @@ export const ENTROPY_CANDIDATE = /[A-Za-z0-9+/=_-]{24,}/g;
  */
 export function isPathLike(token: string, precedingChar: string | undefined): boolean {
   if (precedingChar === "/" || precedingChar === ".") return true;
-  const slashes = token.split("/").length - 1;
-  return slashes >= 2;
+  const segments = token.split("/");
+  if (segments.length < 3) return false;
+
+  // Counting slashes was not enough, and the miss was serious: an AWS secret
+  // access key is base64, so slashes are part of its alphabet, and
+  // `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` was read as a path and sent to
+  // the model intact. What separates the two is what sits between the slashes —
+  // a path's segments are words (lowercase, hyphenated, dotted), a key's are
+  // dense mixed-case runs.
+  const wordy = segments.filter(
+    (segment) => segment.length > 0 && /^[a-z0-9]+([._-][a-z0-9]+)*$/.test(segment),
+  ).length;
+  return wordy * 2 >= segments.length;
 }
 
 export function isEntropyAllowlisted(token: string): boolean {

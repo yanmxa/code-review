@@ -187,3 +187,43 @@ describe("Redactor — path vs base64 discrimination", () => {
     expect(new Redactor().redact(line)).toBe(line);
   });
 });
+
+describe("holes found by running against a real pull request", () => {
+  it("masks an AWS secret access key, slashes and all", () => {
+    // Shipped: the access key id beside it was masked and this was not, so a
+    // credential reached the model in the same prompt as its own warning.
+    const out = new Redactor().redact(
+      `awsSecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",`,
+    ) as unknown as string;
+    expect(out).not.toContain("wJalrXUtnFEMI");
+    expect(out).toContain("[REDACTED:");
+  });
+
+  it("sees a credential word inside a camelCase name", () => {
+    // `\b` needs a non-word character before the keyword and there is none in
+    // the middle of an identifier, so every camelCase config key was invisible.
+    const out = new Redactor().redact(`myAuthToken: "s3cr3tV4lueHere123"`) as unknown as string;
+    expect(out).not.toContain("s3cr3tV4lueHere123");
+  });
+
+  it("still leaves a name that merely contains a credential word alone", () => {
+    for (const line of [`authorName: "Alice Smith Jones"`, `tokenizer: "sentencepiece-bpe"`]) {
+      expect(new Redactor().redact(line) as unknown as string).toBe(line);
+    }
+  });
+
+  it("catches a slash-bearing high-entropy value with no keyword to key off", () => {
+    // The entropy scanner is the net under the named rules; treating anything
+    // with two slashes as a file path had cut a hole in exactly the alphabet
+    // base64 uses.
+    const out = new Redactor().redact(
+      `const v = "Zm9vYmFy/QmFzZTY0U3Ry+aW5nVmFsdWU/dGhpc0lzTG9uZw";`,
+    ) as unknown as string;
+    expect(out).toContain("[REDACTED:");
+  });
+
+  it("still leaves a URL path alone", () => {
+    const url = `see https://github.com/istanbuljs/v8-to-istanbul/blob/da1c8ef29d/lib/branch.js`;
+    expect(new Redactor().redact(url) as unknown as string).toBe(url);
+  });
+})

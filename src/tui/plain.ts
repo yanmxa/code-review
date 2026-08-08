@@ -23,7 +23,6 @@ export function createPlainRenderer(options: PlainOptions): (event: RunEvent) =>
   const { lang } = options;
 
   let total = 0;
-  let index = 0;
   // The final line should still say what the run cost; only the spend event
   // knows the unit, so remember the last one.
   let lastSpend: { spent: number; limit: number; unit: BudgetUnit } | undefined;
@@ -48,8 +47,10 @@ export function createPlainRenderer(options: PlainOptions): (event: RunEvent) =>
       }
 
       case "unit_start":
-        index++;
-        write(`${theme.accent(GLYPH.active)} [${index}/${total}] ${event.unitId}`);
+        // Taken from the run, not counted locally: a resumed run skips the
+        // units it already finished, so a local counter restarted at 1 and
+        // announced "[1/4]" for the third file.
+        write(`${theme.accent(GLYPH.active)} [${event.index}/${total}] ${event.unitId}`);
         break;
 
       case "unit_end": {
