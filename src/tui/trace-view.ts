@@ -72,7 +72,7 @@ export class TraceView implements Component {
       if (!event) continue;
       const isCursor = i === this.cursor;
       const marker = isCursor ? theme.accent("▌") : " ";
-      lines.push(marker + clip(this.summarize(event), inner - 1));
+      lines.push(marker + clip(summarizeEvent(event), inner - 1));
 
       if (this.expanded.has(i)) {
         const body = this.detail(event, inner - 4);
@@ -104,38 +104,6 @@ export class TraceView implements Component {
     return out;
   }
 
-  /** One line per event: what happened, and what it cost. */
-  private summarize(event: TraceEvent): string {
-    const time = theme.dim(event.ts.slice(11, 19));
-    switch (event.type) {
-      case "unit_start":
-        return `${time} ${theme.accent("▸ unit")} ${event.unitId} ${theme.model(event.model)}`;
-      case "llm_request":
-        return `${time} ${theme.accent("↑ llm")} ${theme.dim(`${event.messages.length} msg · ${event.toolNames.length} tools`)} ${theme.model(event.model)}`;
-      case "llm_response":
-        return (
-          `${time} ${theme.ok("↓ llm")} ${theme.dim(event.stopReason)} ` +
-          theme.dim(
-            `↑${formatTokens(event.usage.input)} ↓${formatTokens(event.usage.output)} $${event.usage.costUsd.toFixed(4)}`,
-          ) +
-          (event.errorMessage ? ` ${theme.danger(clip(event.errorMessage, 40))}` : "")
-        );
-      case "tool_call":
-        return `${time} ${theme.accent(GLYPH.tool)} ${theme.text(event.name)} ${theme.dim(clip(JSON.stringify(event.params), 46))}`;
-      case "tool_result":
-        return `${time}   ${event.isError ? theme.danger("!") : theme.dim("·")} ${theme.dim(clip(firstLine(event.preview), 56))}`;
-      case "rule_hit":
-        return `${time} ${theme.ok("✦ rule")} ${event.ruleId} ${theme.dim(`${event.path}:${event.line}`)}`;
-      case "redaction":
-        return `${time} ${theme.warn("⊘ redacted")} ${event.ruleId} ${theme.dim(`×${event.count}`)}`;
-      case "budget":
-        return `${time} ${theme.warn("¥ " + event.kind)} ${theme.dim(event.detail)}`;
-      case "resumed":
-        return `${time} ${theme.warn("↻ resumed")} ${theme.dim(event.note)}`;
-      case "unit_end":
-        return `${time} ${theme.accent("■ end")} ${theme.dim(`${event.findingIds.length} finding(s) · $${event.spendUsd.toFixed(4)} · ${event.status}`)}`;
-    }
-  }
 
   /**
    * The full payload, for the row the user asked about.
@@ -207,4 +175,44 @@ function textOf(message: unknown): string {
       return typeof text === "string" ? text : JSON.stringify(part, null, 1);
     })
     .join("\n");
+}
+
+/**
+ * One line per event: what happened, and what it cost.
+ *
+ * Shared with `code-review trace`, which used to print every event as pretty
+ * JSON — 639 lines for one file, 318 of them a single request's prompt. The
+ * observability escape hatch has to be readable to be one, so both surfaces
+ * draw the same timeline and the raw form stays behind `--json`.
+ */
+export function summarizeEvent(event: TraceEvent): string {
+    const time = theme.dim(event.ts.slice(11, 19));
+    switch (event.type) {
+      case "unit_start":
+        return `${time} ${theme.accent("▸ unit")} ${event.unitId} ${theme.model(event.model)}`;
+      case "llm_request":
+        return `${time} ${theme.accent("↑ llm")} ${theme.dim(`${event.messages.length} msg · ${event.toolNames.length} tools`)} ${theme.model(event.model)}`;
+      case "llm_response":
+        return (
+          `${time} ${theme.ok("↓ llm")} ${theme.dim(event.stopReason)} ` +
+          theme.dim(
+            `↑${formatTokens(event.usage.input)} ↓${formatTokens(event.usage.output)} $${event.usage.costUsd.toFixed(4)}`,
+          ) +
+          (event.errorMessage ? ` ${theme.danger(clip(event.errorMessage, 40))}` : "")
+        );
+      case "tool_call":
+        return `${time} ${theme.accent(GLYPH.tool)} ${theme.text(event.name)} ${theme.dim(clip(JSON.stringify(event.params), 46))}`;
+      case "tool_result":
+        return `${time}   ${event.isError ? theme.danger("!") : theme.dim("·")} ${theme.dim(clip(firstLine(event.preview), 56))}`;
+      case "rule_hit":
+        return `${time} ${theme.ok("✦ rule")} ${event.ruleId} ${theme.dim(`${event.path}:${event.line}`)}`;
+      case "redaction":
+        return `${time} ${theme.warn("⊘ redacted")} ${event.ruleId} ${theme.dim(`×${event.count}`)}`;
+      case "budget":
+        return `${time} ${theme.warn("¥ " + event.kind)} ${theme.dim(event.detail)}`;
+      case "resumed":
+        return `${time} ${theme.warn("↻ resumed")} ${theme.dim(event.note)}`;
+      case "unit_end":
+        return `${time} ${theme.accent("■ end")} ${theme.dim(`${event.findingIds.length} finding(s) · $${event.spendUsd.toFixed(4)} · ${event.status}`)}`;
+    }
 }

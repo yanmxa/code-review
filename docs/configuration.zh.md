@@ -13,7 +13,7 @@ code-review <pr-url> [options]      # 评审一个 PR
 
 code-review runs                    # 列出所有断点
 code-review triage <run-id>         # 重新打开某次运行的结果浏览器
-code-review trace <run-id> <unit>   # 打印某个单元的完整 trace
+code-review trace <run-id> <unit>   # 打印某个单元的时间线（--json 出原始负载）
 
 code-review config [--edit]         # 查看这次运行会用的配置
 code-review init [-y]               # 交互式生成 review.config.json

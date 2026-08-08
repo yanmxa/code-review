@@ -177,7 +177,7 @@ demo/planted-defects → main · 4 files                                        
 code-review <pr-url> [options]      # 评审一个 PR
 code-review runs                    # 列出所有断点
 code-review triage <run-id>         # 重新打开某次运行的结果浏览器
-code-review trace <run-id> <unit>   # 打印某个单元的完整 trace
+code-review trace <run-id> <unit>   # 打印某个单元的时间线（--json 出原始负载）
 code-review config                  # 查看这次运行会用的配置
 code-review init                    # 回答四个问题，生成配置
 code-review auth                    # 看当前找到了哪些凭据
@@ -270,7 +270,7 @@ src/
 ## 开发
 
 ```bash
-npm test              # 296 个测试，全部离线，不需要任何 API key
+npm test              # 299 个测试，全部离线，不需要任何 API key
 npm run typecheck
 npm run dev -- <url>  # tsx 直跑，不用先 build
 ```

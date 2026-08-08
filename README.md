@@ -181,7 +181,7 @@ the same event stream.
 code-review <pr-url> [options]      # review a pull request
 code-review runs                    # list checkpointed runs
 code-review triage <run-id>         # reopen the findings browser
-code-review trace <run-id> <unit>   # print a unit's full trace
+code-review trace <run-id> <unit>   # print a unit's timeline (--json for payloads)
 code-review config                  # show the configuration a run would use
 code-review init                    # write a config by answering four questions
 code-review auth                    # show which credentials were found
@@ -286,7 +286,7 @@ The three documents are in Chinese; the examples are not.
 ## Development
 
 ```bash
-npm test              # 296 tests, fully offline, no API key needed
+npm test              # 299 tests, fully offline, no API key needed
 npm run typecheck
 npm run dev -- <url>  # run from source via tsx
 ```

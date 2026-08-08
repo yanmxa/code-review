@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { ensureProxySupport } from "./net/proxy.js";
 
@@ -35,6 +36,7 @@ import {
   modelChoices,
 } from "./init/prompts.js";
 import { runInitWizard } from "./tui/init-screen.js";
+import { summarizeEvent } from "./tui/trace-view.js";
 import { DismissalStore } from "./memory/dismissals.js";
 import { parseTarget } from "./platform/adapter.js";
 import { createModelRegistry, executeRun, KNOWN_PROVIDERS, providerForLogin } from "./run.js";
@@ -53,7 +55,7 @@ ${theme.strong("Usage")}
 ${theme.strong("Results")}
   code-review runs                    list checkpointed runs
   code-review triage <run-id>         reopen the findings browser for a finished run
-  code-review trace <run-id> <unit>   print a unit's full trace
+  code-review trace <run-id> <unit>   print a unit's timeline (--json for payloads)
 
 ${theme.strong("Setup")}
   code-review config [--edit]         show the configuration a run would use
@@ -104,6 +106,7 @@ async function main(argv: string[]): Promise<number> {
       "fail-on": { type: "string" },
       yes: { type: "boolean", short: "y" },
       edit: { type: "boolean" },
+      json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -122,7 +125,7 @@ async function main(argv: string[]): Promise<number> {
     case "triage":
       return commandTriage(config, rest[0]);
     case "trace":
-      return commandTrace(config, rest[0], rest[1]);
+      return commandTrace(config, rest[0], rest[1], values.json === true);
     case "login":
       return commandLogin(rest[0]);
     case "logout":
@@ -528,8 +531,21 @@ async function commandTriage(config: Config, runId: string | undefined): Promise
   return 0;
 }
 
-function commandTrace(config: Config, runId: string | undefined, unitId: string | undefined): number {
-  if (!runId || !unitId) throw new Error("Usage: code-review trace <run-id> <unit-id>");
+/**
+ * A unit's trace, as a timeline.
+ *
+ * It used to print every event as pretty JSON: 639 lines for one file, half of
+ * them a single request's prompt. An observability escape hatch nobody can read
+ * is not one. The timeline orients; `--json` is still there for grep and jq,
+ * and the interactive viewer is where a prompt is actually read.
+ */
+function commandTrace(
+  config: Config,
+  runId: string | undefined,
+  unitId: string | undefined,
+  json: boolean,
+): number {
+  if (!runId || !unitId) throw new Error("Usage: code-review trace <run-id> <unit-id> [--json]");
   const dir = findRunDir(config.runDir, runId);
   if (!dir) throw new Error(`No run matching "${runId}". Try: code-review runs`);
 
@@ -539,10 +555,16 @@ function commandTrace(config: Config, runId: string | undefined, unitId: string 
   const events = Tracer.read(dir, relative);
   if (events.length === 0) throw new Error(`No trace at ${relative} in ${dir}`);
 
-  for (const event of events) {
-    process.stdout.write(`${theme.dim(event.ts)} ${theme.accent(event.type)}\n`);
-    process.stdout.write(`${JSON.stringify(event, null, 2)}\n\n`);
+  if (json) {
+    for (const event of events) process.stdout.write(`${JSON.stringify(event)}\n`);
+    return 0;
   }
+
+  process.stdout.write(`${theme.dim(join(dir, relative))}\n\n`);
+  for (const event of events) process.stdout.write(`${summarizeEvent(event)}\n`);
+  process.stdout.write(
+    `\n${theme.dim(`${events.length} event(s) · --json for the full payloads · code-review triage ${runId} to read them interactively`)}\n`,
+  );
   return 0;
 }
 

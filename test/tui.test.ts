@@ -422,3 +422,24 @@ describe("the plain renderer's progress counter", () => {
     expect(lines.join("\n")).toContain("[3/");
   });
 })
+
+describe("clipping a line", () => {
+  const ESC = "\u001b";
+
+  it("does not invent escape codes for text that had none", () => {
+    // pi-tui's truncation wraps its ellipsis in resets whether or not the text
+    // was coloured: invisible on the alt screen, literal garbage in a piped log.
+    const out = clip("abcdefghijklmnop", 8);
+    expect(out).not.toContain(ESC);
+    expect(out).toBe("abcdefg\u2026");
+  });
+
+  it("still truncates coloured text without breaking it", () => {
+    const out = clip(`${ESC}[31mabcdefghijklmnop${ESC}[39m`, 8);
+    expect(out).toContain(ESC);
+  });
+
+  it("counts wide characters as two columns", () => {
+    expect(clip("\u4e2d\u6587\u4e2d\u6587\u4e2d\u6587", 5)).toBe("\u4e2d\u6587\u2026");
+  });
+});

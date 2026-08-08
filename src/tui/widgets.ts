@@ -76,8 +76,16 @@ function titleRow(options: PanelOptions, inner: number): string {
 /** Truncate to a visible width, ANSI sequences accounted for. */
 export function clip(text: string, width: number): string {
   if (width <= 0) return "";
-  return visibleWidth(text) <= width ? text : truncateToWidth(text, width);
+  if (visibleWidth(text) <= width) return text;
+  // pi-tui wraps its ellipsis in reset codes whether or not the text had any
+  // colour. Inside the alt screen that is invisible; piped to a file or a CI
+  // log it is a literal escape sequence in the middle of a sentence. Plain text
+  // in, plain text out.
+  if (!text.includes(ESC)) return `${takeColumns(text, Math.max(0, width - 1))}\u2026`;
+  return truncateToWidth(text, width);
 }
+
+const ESC = "\u001b";
 
 /** Right-pad to a visible width. */
 export function pad(text: string, width: number): string {
