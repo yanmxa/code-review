@@ -141,6 +141,26 @@ describe("comment bodies", () => {
     expect(adapter.posted[0]?.comments[0]?.body).toContain("<!-- code-review:f:aaaaaaaaaa -->");
   });
 
+  it("omits the trace path and finding id — neither is actionable on the PR", async () => {
+    // The trace lives on the machine that ran the review, and finding ids are
+    // assigned per run. Both are noise in a permanent public comment.
+    const findings = [finding({ id: "F-007", tracePath: "traces/src_cache.ts.jsonl" })];
+    const { adapter, snapshot, store, report } = await harness(findings);
+    await postFindings({ adapter, snapshot, store, findings, report, lang: "en" });
+
+    const body = adapter.posted[0]?.comments[0]?.body ?? "";
+    expect(body).not.toContain("traces/");
+    expect(body).not.toContain("F-007");
+    // The stable identity the next run needs is still there, just invisible.
+    expect(body).toContain("<!-- code-review:f:aaaaaaaaaa -->");
+  });
+
+  it("still shows the trace path in the report, where it can be opened", async () => {
+    const findings = [finding({ tracePath: "traces/src_cache.ts.jsonl" })];
+    const { report } = await harness(findings);
+    expect(renderReport(report)).toContain("traces/src_cache.ts.jsonl");
+  });
+
   it("shows machine-checkable evidence but not raw model reasoning", async () => {
     const findings = [
       finding({

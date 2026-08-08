@@ -203,7 +203,16 @@ function renderAppendix(input: ReportInput): string {
   return parts.join("\n\n");
 }
 
-/** The body of a single inline PR comment. */
+/**
+ * The body of a single inline PR comment.
+ *
+ * Deliberately excludes the trace path and the finding id. Both are artifacts of
+ * one local run: the trace lives under `~/.code-review/runs/<id>/` on the
+ * machine that did the review, and finding ids are assigned per run, so a
+ * permanent comment citing `F-001` may point at something else next time.
+ * Whoever reads this comment on the PR cannot act on either. The trace stays
+ * reachable where it is useful — the report, the TUI, and `code-review trace`.
+ */
 export function renderComment(finding: Finding, lang: Language, marker: string): string {
   const parts: string[] = [];
   parts.push(
@@ -213,12 +222,14 @@ export function renderComment(finding: Finding, lang: Language, marker: string):
 
   if (finding.suggestion) parts.push("```suggestion\n" + finding.suggestion + "\n```");
 
+  // Machine-checkable evidence is worth showing: it is reproducible by the
+  // reader. Model reasoning is not, and is left to the report.
   const machineEvidence = finding.evidence.filter((item) => item.kind !== "llm");
   if (machineEvidence.length > 0) {
     parts.push(machineEvidence.map((item) => `> ${renderEvidence(item, lang)}`).join("\n"));
   }
 
-  parts.push(`<sub>${t("postedComment", lang)} · \`${finding.id}\` · \`${finding.tracePath}\`</sub>`);
+  parts.push(`<sub>${t("postedComment", lang)}</sub>`);
   parts.push(marker);
   return parts.join("\n\n");
 }
