@@ -27,6 +27,7 @@
 
 ## 快速开始
 
+
 ```bash
 git clone https://github.com/yanmxa/code-review && cd code-review
 npm install -g .                       # 编译并把 code-review 装到 PATH
@@ -44,6 +45,7 @@ code-review https://github.com/yanmxa/code-review/pull/1 --budget 6
 ---
 
 ## 界面
+
 
 评审进行中：左边文件进度，右边 agent 此刻在做什么，顶部始终是花费和当前模型。
 
@@ -72,7 +74,10 @@ demo/planted-defects → main · 4 files                                        
 ━━━━━━━━━━━━ 2/4 · 00:00  ●4 ○0                                                    ctrl+c 存档并退出
 ```
 
-跑完进入分诊：按置信度分两组，可采纳的默认已勾选，`p` 一键回评。右侧显示这条意见**凭什么**被判成这一档。
+<details>
+<summary><b>跑完进入分诊：按置信度分两组，可采纳的默认已勾选</b></summary>
+
+`p` 一键回评选中的。右侧显示这条意见**凭什么**被判成这一档。
 
 ```
 ⬢ 评审结果 · 8 total  ● 5  ○ 3                                                ▱▱▱▱▱▱▱▱▱▱ ¥0.25/¥6.00
@@ -100,6 +105,8 @@ demo/planted-defects → main · 4 files                                        
 
                                      ↑↓ 移动 · space 选中 · a 全选可采纳 · t trace · p 回评 · q 退出
 ```
+
+</details>
 
 <details>
 <summary><b>按 <code>t</code> 查看某条意见的完整 trace</b></summary>
@@ -136,6 +143,7 @@ demo/planted-defects → main · 4 files                                        
 
 ## 自己验证一下
 
+
 这些不是单测断言，是可以直接复现的命令。演示 PR 里埋了 6 个缺陷。
 
 ```bash
@@ -162,34 +170,83 @@ code-review $PR --post && code-review $PR --post
 
 实测结果：续跑时只重跑被打断的那个文件，已完成的不重复计费；`--budget 0.30` 时跑完第 1 个文件就预测到会花 ¥0.37 而降级，之后预测逐步收敛，最终 ¥0.16 落在预算内；硬停时 4 个文件只有 1 个过了 LLM，报告里仍有 5 条可采纳意见。
 
-### 反馈闭环：被否掉的意见不会再提
+---
 
-工具会记住**这个仓库的维护者拒绝过什么**，下次不再提。
+## 命令与配置
 
-判定"拒绝"只认两个明确信号：评论被**删除**，或所在线程被标记 **resolved**。回复反驳算讨论不算判决，不采信。
 
 ```bash
-code-review dismissed <pr-url>            # 看这个仓库否掉过什么
-code-review undismiss <pr-url> <fp>       # 撤销某一条
+code-review <pr-url> [options]      # 评审一个 PR
+code-review runs                    # 列出所有断点
+code-review triage <run-id>         # 重新打开某次运行的结果浏览器
+code-review trace <run-id> <unit>   # 打印某个单元的完整 trace
+code-review config                  # 查看这次运行会用的配置
 ```
 
-记忆是**仓库级**的，不是运行级——运行目录按 head SHA 建，放在那里的记忆会在下次 push 时蒸发，而那正是工具要重复自己的时刻。
+常用参数：
 
-被扣下的意见**不会出现在任何输出里**，只会报告扣了几条。先展示再说"我扣了它"比不过滤更糟。
+| 选项 | 说明 |
+| --- | --- |
+| `--budget <amount>` | `10`、`¥10`、`$1.50`、`800k tokens`（默认 ¥10） |
+| `--model <ref>` | 指定主模型，指定后不再自动降级 |
+| `--prompt <text>` | 这次运行的额外说明，如 `"这是 #892 的 revert"` |
+| `--post` | 把结果回评到 PR |
+| `--fresh` | 忽略断点从头开始 |
+| `--fail-on <adoptable\|any>` | CI 用：命中则退出码 2 |
 
-这条不是锦上添花：一个每次 push 都重复同一条无效意见的机器人，团队学会的唯一行为是无视它。
+配置文件可以改预算与模型优先级、增删确定性规则、指定评审重点：
 
-### 缺少测试是确定性判断
+```jsonc
+{
+  "budget": { "limit": "¥10", "models": ["openai/gpt-5.4", "openai/gpt-5.4-mini"] },
+  "rules":  { "disabled": ["todo-added"], "custom": [ /* 项目自己的检查 */ ] },
+  "review": { "focus": "这是 Go 服务，最关心错误包装", "ignore": ["命名风格"] }
+}
+```
 
-"改了 `src/foo.ts`，本 PR 没动任何看起来覆盖它的测试" —— 这是人做 review 问得最多的问题，而且完全不需要模型。
-
-只在**有实质逻辑新增**时触发（≥8 行，不算 import、括号、注释），按文件名跨生态匹配测试（`foo.test.ts` / `test_foo.py` / `foo_test.go` / `FooTest.java` / `foo_spec.rb` …）。
-
-按名字匹配必然有漏：测试可能覆盖了它却没在名字里提。所以它是 `minor` 级、正文里明说"若已被其他测试覆盖可忽略"——**并且被否一次之后就永远不再提**。两个功能正好互补。
+完整的参数、配置字段、凭据设置和「怎么加一个工具」见 **[配置文档](docs/configuration.zh.md)**。
 
 ---
 
-## 源码结构
+## 扩展
+
+
+规则只能做正则能做的事；要真正去**查**点什么（跑编译器、查依赖公告、调内部服务），就加一个工具。
+
+一个工具 = 一个文件 + 注册表里一行，**主流程不动**：
+
+```diff
+ export const TOOL_REGISTRY: ToolSpec[] = [
+   getFileTool,
+   searchDiffTool,
++  yourTool,
+   submitFindingsTool,
+ ];
+```
+
+`meta.promptSnippet` 自动生成 prompt 里的工具清单，`meta.evidenceKind` 决定它的输出能否把发现提升为「可直接采纳」。没有第三处要改。
+
+完整示例与 `evidenceKind` 怎么选，见 [配置文档](docs/configuration.zh.md#加一个工具)。
+
+---
+
+## 架构
+
+```
+PR URL → 拉取(REST，不 clone) → 脱敏 → 切分成评审单元
+       → 每个单元：确定性规则 ∥ agent 循环(只读工具 + submit_findings)
+       → 去重 → 按证据分级 → 报告 / TUI 分诊 / 回评
+```
+
+机制细节见 [一次评审是怎么跑完的](docs/how-it-works.zh.md)；下面三个取舍的展开论证见 [设计文档](docs/design.zh.md)：
+
+- **每个文件一个 agent 循环**，不是整个 PR 一次调用。文件是人做 review 的思考单位，也让断点、预算、上下文都有了自然边界。
+- **预算与追踪挂在 stream function 上**，不散在流程里。这样它们对每一次 LLM 调用生效，而 pipeline 完全不知道它们存在。
+- **"可直接采纳"只认机器证据**。曾写过"附近有规则命中就提升置信度"，被测试推翻删掉了——位置相近不等于说的是同一件事。
+
+依赖 pi 的三个包：`pi-ai`（统一 LLM 接口 + 逐次用量/成本）、`pi-agent-core`（agent 循环 + 声明式工具）、`pi-tui`（差分渲染终端 UI）。
+
+### 源码结构
 
 ```
 src/
@@ -210,174 +267,22 @@ src/
 └── tui/           dashboard / 分诊 / trace 浏览；plain.ts 是同一事件流的行式渲染
 ```
 
-测试与被测模块一一对应，`test/` 下同名。跑一次 `npm test` 是 245 个用例、全部离线。
+测试与被测模块一一对应，`test/` 下同名。
 
----
+### 文档
 
-## 新增一个工具
-
-一个工具就是一个文件加注册表里一行，主流程不动。`ts_syntax_check` 就是这样加进来的，**只改两处**：
-
-**① 新建 `src/tools/ts-syntax-check.ts`**
-
-```ts
-export const tsSyntaxCheckTool = defineReviewTool({
-  meta: {
-    id: "ts_syntax_check",
-    evidenceKind: "static",   // ← 让它的输出可以把 finding 提升为"可直接采纳"
-    enabledByDefault: true,
-    costHint: "free",
-    promptSnippet: "ts_syntax_check — 对改动的 .ts/.js 文件跑 TypeScript 编译器…",
-  },                          //   ↑ 自动进入 system prompt
-  build(context) {
-    return reviewTool({
-      name: "ts_syntax_check",
-      parameters: Type.Object({ path: Type.String() }),
-      async execute(_id, params) { /* … */ },
-    });
-  },
-});
-```
-
-**② `src/tools/index.ts` 加一行**
-
-```diff
- export const TOOL_REGISTRY: ToolSpec[] = [
-   getFileTool,
-   searchDiffTool,
-+  tsSyntaxCheckTool,
-   submitFindingsTool,
- ];
-```
-
-没有第三处。pipeline、prompt 拼装、置信度分级全都不动。运行时可关：`{"tools": {"ts_syntax_check": false}}`。
-
-**它怎么保证安全**：文件取到内存，交给 TypeScript 编译器的**虚拟 CompilerHost**。`noResolve` 不碰 import，`noEmit` 不写文件 —— 编译器只把代码当**数据**解析。代价是拿不到跨模块类型，所以"找不到模块"类诊断被过滤，只留语法错误和文件内自洽的类型错误。这个限制写在工具自己的 description 里。
-
----
-
-## 命令与配置
-
-```bash
-code-review <pr-url> [options]      # 评审一个 PR
-
-code-review runs                    # 列出所有断点
-code-review triage <run-id>         # 重新打开某次运行的结果浏览器
-code-review trace <run-id> <unit>   # 打印某个单元的完整 trace
-
-code-review config                  # 查看这次运行会用的配置
-code-review init                    # 生成 review.config.json 供编辑
-code-review auth                    # 查看当前配置了哪些凭据
-code-review login [provider]        # 用订阅登录（默认 openai-codex）
-code-review logout <provider>       # 删除已存的凭据
-
-code-review dismissed <pr-url>      # 看这个仓库否掉过什么
-code-review undismiss <pr-url> <fp> # 撤销某一条否决
-```
-
-| 选项 | 说明 |
+| 文档 | 内容 |
 | --- | --- |
-| `--budget <amount>` | `10`、`¥10`、`$1.50`、`800k tokens`。裸数字用配置里的单位（默认 ¥10） |
-| `--model <ref>` | 指定主模型，如 `openai/gpt-5.4`。指定后不再自动降级 |
-| `--prompt <text>` | 这一次运行的额外说明，如 `"这是 #892 的 revert"`。会随每个文件的 diff 一起给模型 |
-| `--lang <zh\|en>` | 评审意见与报告的语言（默认 zh） |
-| `--post` | 把结果作为行内评论回评到 PR |
-| `--report <path>` | 额外把 markdown 报告写到指定路径 |
-| `--fresh` | 忽略已有断点，从头开始 |
-| `--no-tui` / `--verbose` | 逐行输出 / 同时打印模型流式输出 |
-| `--fail-on <adoptable\|any>` | CI 用：命中则退出码 2 |
-
-退出码：`0` 正常，`2` 命中 `--fail-on`，`3` 预算耗尽（部分结果），`1` 出错。
-
-**配置优先级**：内置默认 → `~/.config/code-review/config.json` → `./review.config.json` → 环境变量 → 命令行。`code-review init` 生成一份可编辑的，`code-review config` 查看合并后的结果。
-
-```jsonc
-{
-  "budget": {
-    "limit": "¥10",            // 也可以 "$1.50" 或 "800k tokens"
-    "usdToCny": 7.25,          // 仅当 limit 用人民币时需要
-    "models": [                // 优先级：预计会超支时逐档下降
-      "openai/gpt-5.4",
-      "openai/gpt-5.4-mini",
-      "openai/gpt-5.4-nano"
-    ]
-  },
-  "tools": { "ts_syntax_check": true },
-
-  "rules": {                                     // 确定性检查（产出可采纳级证据）
-    "disabled": ["todo-added"],                  //   关掉不认同的内置规则
-    "severity": { "console-log": "nit" },        //   改严重级
-    "custom": [{                                 //   只有这个项目知道的检查
-      "id": "no-legacy-import",
-      "severity": "major",
-      "files": "\\.ts$",
-      "pattern": "from\\s+[\"'][^\"']*legacy/",
-      "title": "Imports from legacy/",
-      "body": "legacy/ 已冻结，需要什么先搬进 src/。"
-    }]
-  },
-
-  "review": {                                    // 评审员的人设
-    "focus": "这是一个 Go 服务，最关心错误包装和 context 传递。",
-    "ignore": ["命名风格", "注释格式"]             //   已经吵完的话题，别再提
-  },
-
-  "lang": "zh"
-}
-```
-
-`code-review config` 打印合并后的完整结果——**"这次会用什么"不该需要先跑一次才知道**。
-
-**降级不看已花了多少，看预计会花多少。** 每跑完一个文件重算一次 `已花 ÷ 已完成比例`：
-
-```
-¥ downgrade — gpt-5.4 → gpt-5.4-mini — projected ¥0.37 against ¥0.30 after 1/4 files
-✓ cache.ts    ¥0.09/¥0.30 · projected ¥0.37
-✓ config.ts   ¥0.11/¥0.30 · projected ¥0.22    ← 换便宜模型后预测自行收敛
-✓ session.ts  ¥0.16/¥0.30 · projected ¥0.16    ← 最终落在预算内
-```
-
-花掉一半预算跑完一半文件是**正好在轨**，不该降级；花掉一半只跑完五分之一才是要出事。所以配置里没有阈值——超了降一档，降到底还超就收缩上下文，真的花完才停。
-
-<details>
-<summary><b>用 ChatGPT 订阅代替 API key</b></summary>
-
-`openai-codex` 通过 ChatGPT 订阅访问同样的模型，调用由订阅覆盖，不按 token 计费：
-
-```bash
-code-review login openai-codex      # 浏览器授权，凭据存到 ~/.code-review/auth.json（0600）
-code-review <pr-url> --model openai-codex/gpt-5.4
-```
-
-OAuth 流程本身是 pi 提供的；这里补的是终端交互和一个落盘的凭据存储——pi-ai 只提供内存版。
-
-**注意**：订阅模式下 provider 不报告单次费用，预算改用 API 标价折算。它仍限制工作量、仍驱动降级链，但所有数字加 `≈` 前缀，报告里写明由订阅覆盖。它是**工作量上限，不是账单**。
-
-</details>
-
----
-
-## 架构
-
-```
-PR URL → 拉取(REST，不 clone) → 脱敏 → 切分成评审单元
-       → 每个单元：确定性规则 ∥ agent 循环(只读工具 + submit_findings)
-       → 去重 → 按证据分级 → 报告 / TUI 分诊 / 回评
-```
-
-机制细节见 [一次评审是怎么跑完的](docs/how-it-works.zh.md)；下面三个取舍的展开论证见 [设计文档](docs/design.zh.md)：
-
-- **每个文件一个 agent 循环**，不是整个 PR 一次调用。文件是人做 review 的思考单位，也让断点、预算、上下文都有了自然边界。
-- **预算与追踪挂在 stream function 上**，不散在流程里。这样它们对每一次 LLM 调用生效，而 pipeline 完全不知道它们存在。
-- **"可直接采纳"只认机器证据**。曾写过"附近有规则命中就提升置信度"，被测试推翻删掉了——位置相近不等于说的是同一件事。
-
-依赖 pi 的三个包：`pi-ai`（统一 LLM 接口 + 逐次用量/成本）、`pi-agent-core`（agent 循环 + 声明式工具）、`pi-tui`（差分渲染终端 UI）。
-
-产物示例见 [`examples/`](examples/)：[评审报告](examples/sample-report.zh.md)、[一条 trace](examples/sample-trace.jsonl)、[断点文件](examples/sample-state.json)。
+| [一次评审是怎么跑完的](docs/how-it-works.zh.md) | 机制：跟着一条真实发现走完全程 |
+| [配置](docs/configuration.zh.md) | 全部参数、配置字段、凭据、怎么加工具 |
+| [设计文档](docs/design.zh.md) | 取舍：为什么这样设计，放弃了什么 |
+| [关于 AI 的使用](docs/ai-usage.md) | 过程：AI 写错了什么，怎么发现的 |
+| [`examples/`](examples/) | 真实运行的产物：[报告](examples/sample-report.zh.md) · [trace](examples/sample-trace.jsonl) · [断点](examples/sample-state.json) |
 
 ---
 
 ## 开发
+
 
 ```bash
 npm test              # 245 个测试，全部离线，不需要任何 API key
@@ -409,6 +314,8 @@ Node 的 `fetch` 默认**不读** `HTTPS_PROXY`（curl 会读），表现为一�
 
 ## 关于 AI 的使用
 
+
 本项目由 AI 辅助完成，过程记录在 [`docs/ai-usage.md`](docs/ai-usage.md)：哪些是 AI 写的、怎么验证的、AI 写错了什么（6 个缺陷）、又是怎么被发现的。
 
 MIT License.
+

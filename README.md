@@ -28,6 +28,7 @@ The full mechanism: [how a review runs](docs/how-it-works.zh.md) (Chinese).
 
 ## Quick start
 
+
 ```bash
 git clone https://github.com/yanmxa/code-review && cd code-review
 npm install -g .                       # builds and puts `code-review` on your PATH
@@ -45,6 +46,7 @@ Prefer not to install globally: `npm install && npm run dev -- <pr-url>`.
 ---
 
 ## What it looks like
+
 
 During the run: file progress on the left, what the agent is doing right now on
 the right, spend and current model always on top.
@@ -74,8 +76,10 @@ demo/planted-defects → main · 4 files                                        
 ━━━━━━━━━━━━ 2/4 · 00:00  ●4 ○0                                             ctrl+c checkpoint & quit
 ```
 
-Then triage: two groups by confidence, adoptable ones pre-selected, `p` posts
-the selection. The right pane shows *why* a finding earned its tier.
+<details>
+<summary><b>Then triage: two groups by confidence, adoptable ones pre-selected</b></summary>
+
+`p` posts the selection. The right pane shows *why* a finding earned its tier.
 
 ```
 ⬢ Review findings · 8 total  ● 5  ○ 3                                         ▱▱▱▱▱▱▱▱▱▱ ¥0.25/¥6.00
@@ -103,6 +107,8 @@ the selection. The right pane shows *why* a finding earned its tier.
 
                                 ↑↓ move · space toggle · a all adoptable · t trace · p post · q quit
 ```
+
+</details>
 
 <details>
 <summary><b>Press <code>t</code> for the full trace behind any finding</b></summary>
@@ -141,6 +147,7 @@ the same event stream.
 
 ## Verify the claims yourself
 
+
 These are not test assertions; they are commands you can run. The demo PR has
 six planted defects.
 
@@ -172,235 +179,70 @@ triggered a downgrade, after which the forecast converged and the run closed at
 ¥0.16; under the hard stop only 1 of 4 files reached the model, yet the report
 still carried 5 adoptable findings.
 
-### The feedback loop: a rejected comment is never raised again
+---
 
-The tool remembers what **this repository's maintainers have rejected**, and
-stops raising it.
+## Commands and configuration
 
-Only two signals count as a rejection: the comment was **deleted**, or its
-thread was marked **resolved**. A reply arguing with a finding is a
-conversation, not a verdict, and is left alone.
 
 ```bash
-code-review dismissed <pr-url>            # what this repo has rejected
-code-review undismiss <pr-url> <fp>       # take one back
+code-review <pr-url> [options]      # review a pull request
+code-review runs                    # list checkpointed runs
+code-review triage <run-id>         # reopen the findings browser
+code-review trace <run-id> <unit>   # print a unit's full trace
+code-review config                  # show the configuration a run would use
 ```
 
-The memory is scoped **per repository**, not per run — a run directory is keyed
-by head SHA, so anything remembered there would evaporate on the next push,
-which is exactly when the tool would repeat itself.
+The options you will reach for:
 
-A withheld finding **does not appear in any output**; only the count is
-reported. Showing it and then announcing it was withheld would be worse than
-not filtering at all.
+| Option | Meaning |
+| --- | --- |
+| `--budget <amount>` | `10`, `¥10`, `$1.50`, `800k tokens` (default ¥10) |
+| `--model <ref>` | Pin the model; setting it disables the ladder |
+| `--prompt <text>` | Context for this run, e.g. `"this is a revert of #892"` |
+| `--post` | Post findings back to the pull request |
+| `--fresh` | Ignore any checkpoint and start over |
+| `--fail-on <adoptable\|any>` | For CI: exit 2 when findings of that tier exist |
 
-This is not a nicety. A reviewer that repeats a rejected comment on every push
-teaches the team to ignore it, and a review tool that gets ignored has failed
-however good its findings are.
+A config file sets the budget and model order, adds or removes deterministic
+rules, and tells the reviewer what this project cares about:
 
-### Missing tests is a deterministic finding
+```jsonc
+{
+  "budget": { "limit": "¥10", "models": ["openai/gpt-5.4", "openai/gpt-5.4-mini"] },
+  "rules":  { "disabled": ["todo-added"], "custom": [ /* your own checks */ ] },
+  "review": { "focus": "A Go service; error wrapping matters", "ignore": ["naming"] }
+}
+```
 
-"You changed `src/foo.ts` and this PR touches no test that appears to cover it"
-is the question human reviewers ask most often, and it needs no model at all.
-
-It fires only on **substantive new logic** (≥8 added lines, excluding imports,
-braces, and comments), matching test files by name across ecosystems
-(`foo.test.ts`, `test_foo.py`, `foo_test.go`, `FooTest.java`, `foo_spec.rb`, …).
-
-Name matching necessarily misses tests that cover a file without naming it. So
-the finding is `minor`, its body says to ignore it if coverage exists elsewhere
-— and one dismissal retires it permanently. The two features are built for each
-other.
+Full reference — every flag and field, credentials, and how to add a tool — in
+**[docs/configuration.zh.md](docs/configuration.zh.md)** (Chinese).
 
 ---
 
-## Code map
+## Extending
 
-```
-src/
-├── platform/      GitHub / GitLab adapters, and a hand-written unified-diff parser
-├── security/      Redaction: gitleaks-derived rules plus an entropy scan, brand-enforced
-├── engine/
-│   ├── units.ts        diff → review units
-│   ├── rules-engine.ts deterministic checks (built-in and project-defined)
-│   ├── review-agent.ts the agent loop; budget and tracing hang off its streamFn
-│   ├── grade.ts        evidence → tier, dedupe, fingerprints
-│   └── pipeline.ts     owns the order of work, never its content
-├── tools/         read-only tools the agent may call, declaratively registered
-├── budget/        the ledger and the forecast-driven ladder
-├── checkpoint/    findings written before the state that acknowledges them
-├── memory/        repository-scoped record of what maintainers rejected
-├── trace/         one JSONL per review unit
-├── report/        markdown report and idempotent posting
-└── tui/           dashboard / triage / trace viewer; plain.ts renders the same event stream
-```
 
-Tests mirror the modules they cover under `test/`. `npm test` runs 245 of them,
-entirely offline.
+Rules can only do what a regular expression can. When something has to actually
+be *looked up* — run a compiler, query an advisory database, call an internal
+service — that is a tool.
 
----
-
-## Adding a tool
-
-A tool is one file plus one line in the registry; the main flow is untouched.
-`ts_syntax_check` was added exactly that way, in **two places**:
-
-**① a new file, `src/tools/ts-syntax-check.ts`**
-
-```ts
-export const tsSyntaxCheckTool = defineReviewTool({
-  meta: {
-    id: "ts_syntax_check",
-    evidenceKind: "static",   // ← lets its output promote a finding to "adoptable"
-    enabledByDefault: true,
-    costHint: "free",
-    promptSnippet: "ts_syntax_check — run the TypeScript compiler over a changed file…",
-  },                          //   ↑ enters the system prompt automatically
-  build(context) {
-    return reviewTool({
-      name: "ts_syntax_check",
-      parameters: Type.Object({ path: Type.String() }),
-      async execute(_id, params) { /* … */ },
-    });
-  },
-});
-```
-
-**② one line in `src/tools/index.ts`**
+A tool is one file plus one line in the registry; the main flow is untouched:
 
 ```diff
  export const TOOL_REGISTRY: ToolSpec[] = [
    getFileTool,
    searchDiffTool,
-+  tsSyntaxCheckTool,
++  yourTool,
    submitFindingsTool,
  ];
 ```
 
-There is no third place. Disable it at runtime with
-`{"tools": {"ts_syntax_check": false}}`.
+`meta.promptSnippet` generates the tool list in the prompt, and
+`meta.evidenceKind` decides whether its output can promote a finding to
+adoptable. There is no third place to change.
 
-**Why it is safe**: the file is fetched into memory and handed to the TypeScript
-compiler through a virtual `CompilerHost`. `noResolve` stops it reaching for
-imports, `noEmit` stops it writing anything — the compiler only parses
-repository code as **data**. The cost is that cross-module types are
-unavailable, so "cannot find module" diagnostics are filtered out and only
-syntax errors and self-contained type errors remain. That limit is stated in the
-tool's own description.
-
----
-
-## Commands and configuration
-
-```bash
-code-review <pr-url> [options]      # review a pull request
-
-code-review runs                    # list checkpointed runs
-code-review triage <run-id>         # reopen the findings browser
-code-review trace <run-id> <unit>   # print a unit's full trace
-
-code-review config                  # show the configuration a run would use
-code-review init                    # write review.config.json to edit
-code-review auth                    # show which credentials are configured
-code-review login [provider]        # sign in with a subscription
-code-review logout <provider>       # forget a stored credential
-
-code-review dismissed <pr-url>      # what this repo's maintainers rejected
-code-review undismiss <pr-url> <fp> # raise a dismissed finding again
-```
-
-| Option | Meaning |
-| --- | --- |
-| `--budget <amount>` | `10`, `¥10`, `$1.50`, `800k tokens`. A bare number takes the configured unit (default ¥10) |
-| `--model <ref>` | Primary model, e.g. `openai/gpt-5.4`. Setting it disables the ladder |
-| `--prompt <text>` | Context for this run, e.g. `"this is a revert of #892"`. Goes to the model with every file |
-| `--lang <zh\|en>` | Language of findings and report (default zh) |
-| `--post` | Post findings back to the PR as inline comments |
-| `--report <path>` | Also write the markdown report here |
-| `--fresh` | Ignore any checkpoint and start over |
-| `--no-tui` / `--verbose` | Line output / also stream model output |
-| `--fail-on <adoptable\|any>` | For CI: exit 2 when findings of that tier exist |
-
-Exit codes: `0` clean, `2` matched `--fail-on`, `3` budget exhausted (partial
-results), `1` error.
-
-**Config precedence**: defaults → `~/.config/code-review/config.json` →
-`./review.config.json` → environment → CLI flags. `code-review init` writes an
-editable copy; `code-review config` shows the merged result.
-
-```jsonc
-{
-  "budget": {
-    "limit": "¥10",            // or "$1.50" or "800k tokens"
-    "usdToCny": 7.25,          // only consulted when the limit is in CNY
-    "models": [                // priority order; steps down when projected to overrun
-      "openai/gpt-5.4",
-      "openai/gpt-5.4-mini",
-      "openai/gpt-5.4-nano"
-    ]
-  },
-  "tools": { "ts_syntax_check": true },
-
-  "rules": {                                     // deterministic checks (adoptable-tier evidence)
-    "disabled": ["todo-added"],                  //   switch off a built-in you disagree with
-    "severity": { "console-log": "nit" },        //   re-grade one
-    "custom": [{                                 //   the check only your team can write
-      "id": "no-legacy-import",
-      "severity": "major",
-      "files": "\\.ts$",
-      "pattern": "from\\s+[\"'][^\"']*legacy/",
-      "title": "Imports from legacy/",
-      "body": "legacy/ is frozen. Move what you need into src/ first."
-    }]
-  },
-
-  "review": {                                    // the reviewer's priorities
-    "focus": "A Go service; error wrapping and context propagation matter most.",
-    "ignore": ["naming", "comment style"]        //   settled arguments, do not reopen
-  },
-
-  "lang": "en"
-}
-```
-
-`code-review config` prints the merged result — **"which model, which rules, what
-budget" should not require starting a run to answer**.
-
-**The ladder steps on the forecast, not on how much has been spent.** After each
-file it recomputes `spent ÷ fraction of files done`:
-
-```
-¥ downgrade — gpt-5.4 → gpt-5.4-mini — projected ¥0.37 against ¥0.30 after 1/4 files
-✓ cache.ts    ¥0.09/¥0.30 · projected ¥0.37
-✓ config.ts   ¥0.11/¥0.30 · projected ¥0.22    ← the cheaper model pulls it back
-✓ session.ts  ¥0.16/¥0.30 · projected ¥0.16    ← lands inside the budget
-```
-
-Half the budget on half the files is exactly on track and must not trigger
-anything; half the budget on a fifth of them is an emergency. That is why the
-config carries no thresholds — over budget, step down a rung; out of rungs and
-still over, trim context; actually out of money, stop.
-
-<details>
-<summary><b>Using a ChatGPT subscription instead of an API key</b></summary>
-
-`openai-codex` reaches the same models through a ChatGPT plan, so calls are
-covered by the subscription rather than billed per token:
-
-```bash
-code-review login openai-codex      # browser auth; token stored in ~/.code-review/auth.json (0600)
-code-review <pr-url> --model openai-codex/gpt-5.4
-```
-
-The OAuth flow is pi's; this tool adds the terminal prompts and a file-backed
-credential store, because pi-ai ships only an in-memory one.
-
-**Note**: under a plan the provider reports no per-call cost, so the budget
-works from list prices. It still limits how much work runs and still drives the
-downgrade ladder, but every figure is prefixed `≈` and the report says the calls
-were covered by a subscription. It is a work limiter, not a bill.
-
-</details>
+Worked example and how to choose `evidenceKind`:
+[docs/configuration.zh.md](docs/configuration.zh.md#加一个工具) (Chinese).
 
 ---
 
@@ -429,13 +271,45 @@ Built on three pi packages: `pi-ai` (unified LLM API with per-call usage and
 cost), `pi-agent-core` (agent loop, declarative tools), `pi-tui`
 (differential-rendering terminal UI).
 
-Unedited artifacts in [`examples/`](examples/): the
-[report](examples/sample-report.en.md), a [trace](examples/sample-trace.jsonl),
-and the [checkpoint file](examples/sample-state.json).
+### Code map
+
+```
+src/
+├── platform/      GitHub / GitLab adapters, and a hand-written unified-diff parser
+├── security/      Redaction: gitleaks-derived rules plus an entropy scan, brand-enforced
+├── engine/
+│   ├── units.ts        diff → review units
+│   ├── rules-engine.ts deterministic checks (built-in and project-defined)
+│   ├── review-agent.ts the agent loop; budget and tracing hang off its streamFn
+│   ├── grade.ts        evidence → tier, dedupe, fingerprints
+│   └── pipeline.ts     owns the order of work, never its content
+├── tools/         read-only tools the agent may call, declaratively registered
+├── budget/        the ledger and the forecast-driven ladder
+├── checkpoint/    findings written before the state that acknowledges them
+├── memory/        repository-scoped record of what maintainers rejected
+├── trace/         one JSONL per review unit
+├── report/        markdown report and idempotent posting
+└── tui/           dashboard / triage / trace viewer; plain.ts renders the same event stream
+```
+
+Tests mirror the modules they cover under `test/`.
+
+### Documentation
+
+| Document | Contents |
+| --- | --- |
+| [How a review runs](docs/how-it-works.zh.md) | The mechanism, following one real finding end to end |
+| [Configuration](docs/configuration.zh.md) | Every flag and field, credentials, adding a tool |
+| [Design notes](docs/design.zh.md) | The tradeoffs, and what each one gave up |
+| [On AI assistance](docs/ai-usage.md) | The process: what AI got wrong, and how it was caught |
+| [`examples/`](examples/) | Real artifacts: [report](examples/sample-report.en.md) · [trace](examples/sample-trace.jsonl) · [checkpoint](examples/sample-state.json) |
+
+The first four are in Chinese.
 
 ---
 
 ## Development
+
 
 ```bash
 npm test              # 245 tests, fully offline, no API key needed
@@ -476,8 +350,10 @@ the CLI re-execs once with `NODE_USE_ENV_PROXY=1` so it just works.
 
 ## On AI assistance
 
+
 Built with AI assistance. [`docs/ai-usage.md`](docs/ai-usage.md) records the
 process honestly: which parts AI wrote, how they were verified, the six defects
 AI introduced, and how each was caught.
 
 MIT License.
+

@@ -302,42 +302,36 @@ code-review triage <run-id>                       # TUI 里按 t
 
 ---
 
-## 配置能改什么
+## 反馈闭环：被否掉的意见不会再提
 
-三层都能改，优先级：内置默认 → `~/.config/code-review/config.json` → `./review.config.json` → 环境变量 → 命令行。
+工具会记住**这个仓库的维护者拒绝过什么**，下次不再提。
 
-```jsonc
-{
-  "budget": {
-    "limit": "¥10",                      // 或 "$1.50" / "800k tokens"
-    "models": ["openai/gpt-5.4", "openai/gpt-5.4-mini", "openai/gpt-5.4-nano"]
-  },
+判定"拒绝"只认两个明确信号：评论被**删除**，或所在线程被标记 **resolved**。回复反驳算讨论不算判决，不采信。
 
-  "tools": { "ts_syntax_check": false },  // ⑤ 里 agent 能用哪些工具
-
-  "rules": {                              // ④ 的确定性检查
-    "disabled": ["todo-added"],           //   关掉不认同的内置规则
-    "severity": { "console-log": "nit" }, //   改严重级
-    "custom": [{                          //   加只有这个项目知道的检查
-      "id": "no-legacy-import",
-      "severity": "major",
-      "files": "\\.ts$",
-      "pattern": "from\\s+[\"'][^\"']*legacy/",
-      "title": "Imports from legacy/",
-      "body": "legacy/ 已冻结，需要什么先搬进 src/。"
-    }]
-  },
-
-  "review": {                             // ⑤ 里评审员的人设
-    "focus": "这是一个 Go 服务，最关心错误包装和 context 传递。",
-    "ignore": ["命名风格", "注释格式"]      //   已经吵完的话题，别再提
-  }
-}
+```bash
+code-review dismissed <pr-url>            # 看这个仓库否掉过什么
+code-review undismiss <pr-url> <fp>       # 撤销某一条
 ```
 
-`code-review config` 会把合并后的结果全部打印出来——**"这次会用什么"不该需要先跑一次才知道**。
+记忆是**仓库级**的，不是运行级——运行目录按 head SHA 建，放在那里的记忆会在下次 push 时蒸发，而那正是工具要重复自己的时刻。
 
-新增一个**工具**（不是规则）是一个文件加 `tools/index.ts` 里一行，见 [README](../README.zh.md#新增一个工具完整示例)。
+被扣下的意见**不会出现在任何输出里**，只会报告扣了几条。先展示再说"我扣了它"比不过滤更糟。
+
+这条不是锦上添花：一个每次 push 都重复同一条无效意见的机器人，团队学会的唯一行为是无视它。
+
+## 缺少测试是确定性判断
+
+"改了 `src/foo.ts`，本 PR 没动任何看起来覆盖它的测试" —— 这是人做 review 问得最多的问题，而且完全不需要模型。
+
+只在**有实质逻辑新增**时触发（≥8 行，不算 import、括号、注释），按文件名跨生态匹配测试（`foo.test.ts` / `test_foo.py` / `foo_test.go` / `FooTest.java` / `foo_spec.rb` …）。
+
+按名字匹配必然有漏：测试可能覆盖了它却没在名字里提。所以它是 `minor` 级、正文里明说"若已被其他测试覆盖可忽略"——**并且被否一次之后就永远不再提**。两个功能正好互补。
+
+---
+
+## 配置
+
+参数、配置字段、凭据、以及怎么加一个工具，见 [配置文档](configuration.zh.md)。
 
 ---
 
