@@ -213,22 +213,35 @@ other.
 
 ---
 
-## Requirements, and what implements each
+## Code map
 
-| Requirement | How | Code | Tests |
-| --- | --- | --- | --- |
-| **Resumable** | Run id is `sha256(platform:repo:number:headSha)`, so **re-running the same command resumes**. Findings are written before the state that acknowledges them: a crash costs at most one file and never a paid-for result. `state.json` is written to a temp file and renamed. | `checkpoint/store.ts` | `store.test.ts` (16) |
-| **Token budget** | The gate lives in the **stream function**, so every LLM call passes through it — including turns the agent takes on its own. The ladder steps on the **forecast** (`spent ÷ files done`), not on spend: half the budget on half the files is on track and triggers nothing. Over budget → step down a rung; out of rungs → trim context; actually out of money → stop. After a hard stop the **zero-cost rules still run**, so partial results stay worth reading. | `budget/budget.ts`<br>`engine/review-agent.ts` | `budget.test.ts` (33) |
-| **Observable** | One JSONL per review unit: full system prompt, every message, raw model response, every tool call and result, rule hits, budget events. A link in the report, `t` in the TUI, `code-review trace` on the command line. | `trace/tracer.ts` | `pipeline.test.ts` |
-| **Confidence tiers** | **Only machine-reproducible evidence promotes a finding to "adoptable"**: a deterministic rule hit or a static analysis diagnostic. Model reasoning stays "for reference". Cited tool call ids are resolved against the trace; fabricated ones are dropped, not rewarded. | `engine/grade.ts`<br>`engine/rules-engine.ts` | `rules.test.ts` (23) |
-| **Security** | Redaction is **compiler-enforced**: anything bound for a model or for disk is a branded `Redacted<string>`, so forgetting to redact is a type error, not a leak. gitleaks-derived rules plus an entropy scan. Never clones, registers no shell tool — every access is REST. The only subprocess is `gh auth token`. | `security/redactor.ts` | `redactor.test.ts` (27) |
-| **Extensible** | A tool is one file plus one line in `tools/index.ts`. The prompt's tool list comes from `meta.promptSnippet`; grading reads `meta.evidenceKind`. The pipeline is never touched. | `tools/spec.ts`<br>`tools/index.ts` | `tools.test.ts` (17) |
+```
+src/
+├── platform/      GitHub / GitLab adapters, and a hand-written unified-diff parser
+├── security/      Redaction: gitleaks-derived rules plus an entropy scan, brand-enforced
+├── engine/
+│   ├── units.ts        diff → review units
+│   ├── rules-engine.ts deterministic checks (built-in and project-defined)
+│   ├── review-agent.ts the agent loop; budget and tracing hang off its streamFn
+│   ├── grade.ts        evidence → tier, dedupe, fingerprints
+│   └── pipeline.ts     owns the order of work, never its content
+├── tools/         read-only tools the agent may call, declaratively registered
+├── budget/        the ledger and the forecast-driven ladder
+├── checkpoint/    findings written before the state that acknowledges them
+├── memory/        repository-scoped record of what maintainers rejected
+├── trace/         one JSONL per review unit
+├── report/        markdown report and idempotent posting
+└── tui/           dashboard / triage / trace viewer; plain.ts renders the same event stream
+```
+
+Tests mirror the modules they cover under `test/`. `npm test` runs 243 of them,
+entirely offline.
 
 ---
 
 ## Adding a tool
 
-The brief asks that adding a tool be declarative and leave the main flow alone.
+A tool is one file plus one line in the registry; the main flow is untouched.
 `ts_syntax_check` was added exactly that way, in **two places**:
 
 **① a new file, `src/tools/ts-syntax-check.ts`**

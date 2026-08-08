@@ -188,24 +188,34 @@ code-review undismiss <pr-url> <fp>       # 撤销某一条
 
 ---
 
-## 需求对照表
+## 源码结构
 
-题目的六条硬性要求，各自由哪个模块实现、被哪个测试证明：
+```
+src/
+├── platform/      GitHub / GitLab adapter，自写的 unified diff 解析器
+├── security/      脱敏：gitleaks 规则 + 熵值扫描，branded 类型强制
+├── engine/
+│   ├── units.ts        diff → 评审单元
+│   ├── rules-engine.ts 确定性检查（内置 + 项目自定义）
+│   ├── review-agent.ts agent 循环；预算与 trace 都挂在这里的 streamFn 上
+│   ├── grade.ts        按证据定级、去重、fingerprint
+│   └── pipeline.ts     只管顺序，不管内容
+├── tools/         agent 可用的只读工具，声明式注册
+├── budget/        账本 + 预测式降级
+├── checkpoint/    断点：findings 先落盘，state 原子写入
+├── memory/        仓库级的否决记忆
+├── trace/         每单元一个 JSONL
+├── report/        markdown 报告 + 幂等回评
+└── tui/           dashboard / 分诊 / trace 浏览；plain.ts 是同一事件流的行式渲染
+```
 
-| 要求 | 怎么做的 | 代码 | 测试 |
-| --- | --- | --- | --- |
-| **可恢复** | Run id = `sha256(平台:仓库:PR号:head SHA)`，**重跑同一条命令就是续跑**。findings 先落盘、再写确认它的 state —— 崩在中间最多重跑一个文件，永不丢已付费的结果。`state.json` 临时文件 + rename 原子写入。 | `checkpoint/store.ts` | `store.test.ts`（16） |
-| **token 预算** | 闸门装在 **stream function** 里，每一次 LLM 调用都要过它（包括 agent 自己多打的那轮）。降级看的是**预测**（`已花 ÷ 已完成比例`）而不是已花多少 —— 花掉一半预算跑完一半文件是正好在轨，不该触发任何动作。预计超支 → 降一档；降到底还超 → 收缩上下文；真的花完 → 停。**硬停后仍跑零成本规则**，部分结果依然有价值。 | `budget/budget.ts`<br>`engine/review-agent.ts` | `budget.test.ts`（33） |
-| **可观测** | 每个评审单元一个 JSONL：完整 system prompt、每条消息、模型原始回复、每次工具调用与结果、规则命中、预算事件。报告里是链接，TUI 里按 `t`，命令行 `code-review trace`。 | `trace/tracer.ts` | `pipeline.test.ts` |
-| **置信度分级** | **只有机器可复现的证据能评为"可直接采纳"**：确定性规则命中，或静态检查诊断。模型推理无论多笃定都只是"仅供参考"。模型必须引用工具调用 id，编造的 id 被静默丢弃而非奖励。 | `engine/grade.ts`<br>`engine/rules-engine.ts` | `rules.test.ts`（23） |
-| **安全** | 脱敏**编译器强制**：出网/落盘的字符串都是 branded 类型 `Redacted<string>`，忘了脱敏是编译错误而非泄漏。规则源自 gitleaks + 熵值扫描。不 clone、无 shell 工具，全程只有 REST。唯一子进程是 `gh auth token`。 | `security/redactor.ts` | `redactor.test.ts`（27） |
-| **可扩展** | 一个工具 = 一个文件 + `tools/index.ts` 加一行。prompt 里的工具清单由 `meta.promptSnippet` 生成，分级读 `meta.evidenceKind` —— 主流程一行不改。 | `tools/spec.ts`<br>`tools/index.ts` | `tools.test.ts`（17） |
+测试与被测模块一一对应，`test/` 下同名。跑一次 `npm test` 是 243 个用例、全部离线。
 
 ---
 
 ## 新增一个工具
 
-题目要求"新增工具是声明式注册，不改主流程"。`ts_syntax_check` 就是这样加的，**只改两处**：
+一个工具就是一个文件加注册表里一行，主流程不动。`ts_syntax_check` 就是这样加进来的，**只改两处**：
 
 **① 新建 `src/tools/ts-syntax-check.ts`**
 
