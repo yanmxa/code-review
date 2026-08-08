@@ -1,6 +1,6 @@
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { allModelCandidates, modelChoices, suggestLadder } from "../src/init/prompts.js";
+import { allModelCandidates, buildInitConfig, modelChoices, suggestLadder } from "../src/init/prompts.js";
 import type { ModelChoice } from "../src/init/prompts.js";
 
 function registry(models: { id: string; input: number; output: number; reasoning?: boolean }[]) {
@@ -17,11 +17,12 @@ function registry(models: { id: string; input: number; output: number; reasoning
   return collection;
 }
 
-const choice = (id: string, input: number): ModelChoice => ({
+const choice = (id: string, input: number, subscription = false): ModelChoice => ({
   ref: { provider: "openai", id },
   label: `openai/${id}`,
   inputCost: input,
   outputCost: input * 6,
+  subscription,
 });
 
 describe("model candidates", () => {
@@ -35,6 +36,24 @@ describe("model candidates", () => {
       { id: "chatty", input: 1, output: 4, reasoning: false },
     ]);
     expect(allModelCandidates(models).map((c) => c.ref.id)).toEqual(["gpt-5.4"]);
+  });
+
+  it("leaves out models that reason but do not review", () => {
+    // `gpt-realtime` is a speech model whose registry entry sets `reasoning`,
+    // and it was cheap enough to be offered as a review fallback. Falling back
+    // to it is not a degraded review, it is a different product.
+    const models = registry([
+      { id: "gpt-5.4", input: 2.5, output: 15 },
+      { id: "gpt-realtime-2.1", input: 4, output: 16 },
+      { id: "gpt-4o-audio-preview", input: 2.5, output: 10 },
+    ]);
+    expect(allModelCandidates(models).map((c) => c.ref.id)).toEqual(["gpt-5.4"]);
+  });
+
+  it("marks the providers reached through a subscription", () => {
+    const models = registry([{ id: "gpt-5.4", input: 2.5, output: 15 }]);
+    expect(allModelCandidates(models, new Set(["openai"]))[0]!.subscription).toBe(true);
+    expect(allModelCandidates(models)[0]!.subscription).toBe(false);
   });
 
   it("orders by price so the list reads top-down", () => {
@@ -67,6 +86,44 @@ describe("the picker list", () => {
     const target = many[7]!;
     const shown = modelChoices(many, target.ref);
     expect(shown.map((c) => c.label)).toContain(target.label);
+  });
+
+  it("never samples away a model the user signed in for", () => {
+    // Sampling once dropped every subscription model, so an OAuth login looked
+    // like it had done nothing. They cost no extra to run; they are all shown.
+    const subscribed = Array.from({ length: 6 }, (_, i) => choice(`sub${i}`, 5 - i * 0.5, true));
+    const shown = modelChoices([...subscribed, ...many], many[0]!.ref);
+    for (const model of subscribed) expect(shown.map((c) => c.label)).toContain(model.label);
+    // And they lead, because a plan costs nothing more to use than it already did.
+    expect(shown.slice(0, subscribed.length).every((c) => c.subscription)).toBe(true);
+  });
+});
+
+describe("the config an answer set implies", () => {
+  const base = { lang: "zh" as const, budget: "¥10.00", ladder: [], ignore: "" };
+
+  it("writes nothing when every answer is the default", () => {
+    expect(buildInitConfig(base)).toEqual({});
+  });
+
+  it("records only what differs", () => {
+    expect(buildInitConfig({ ...base, budget: "$2", ignore: "命名风格, 注释格式" })).toEqual({
+      budget: { limit: "$2.00" },
+      review: { ignore: ["命名风格", "注释格式"] },
+    });
+  });
+
+  it("puts the chosen model at the head of the ladder", () => {
+    const config = buildInitConfig({
+      ...base,
+      model: { provider: "openai", id: "gpt-5.4" },
+      ladder: [{ provider: "openai", id: "gpt-5.4-mini" }],
+    });
+    expect(config.budget?.models).toEqual(["openai/gpt-5.4", "openai/gpt-5.4-mini"]);
+  });
+
+  it("leaves an unparseable amount out rather than guessing at one", () => {
+    expect(buildInitConfig({ ...base, budget: "lots" })).toEqual({});
   });
 });
 
