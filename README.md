@@ -7,13 +7,13 @@ the evidence behind it. Built on the [pi](https://github.com/earendil-works/pi) 
 
 **How it reads a pull request**
 
-- **Deterministic checks run first** — committed secrets, SQL concatenation, unsafe randomness, missing tests. These need no model, and a hit is adoptable-tier evidence
-- **One agent loop per file** — with read-only tools (read a file, search this PR's changes, run the TypeScript compiler), capped at six turns
-- **Then one for the pull request** — a pass that decides for itself where to look, because the findings worth most are about two places at once: a caller not updated with its callee, a field added to a model but not the migration. It reads the description, forms a suspicion, and checks it with the same tools
-- **CI results go to the model too** — failing tests and their line-level errors enter the context alongside the diff, instead of being guessed at
-- **It only concludes what it can back** — machine-verifiable evidence is "adoptable", model reasoning is "for reference", and the two are never blurred. Within the reference group the model also says how sure it is (`◉ sure`, `◐ likely`, `○ unsure`), which orders the list and never promotes anything
+- **Deterministic checks run first** — committed secrets, SQL concatenation, unsafe randomness, missing tests. Free, and a hit is adoptable-tier evidence
+- **One agent per file** — read-only tools, six turns
+- **Then one for the pull request** — it decides where to look, and finds what one file cannot show: a caller not updated with its callee, a field added to a model but not the migration
+- **CI results go in too** — failing tests and their line-level errors, alongside the diff, instead of being guessed at
+- **It only concludes what it can back** — machine-verifiable evidence is "adoptable", model reasoning is "for reference"; the latter also carries the model's own certainty (`◉ sure`, `◐ likely`, `○ unsure`), which only orders the list
 - **A rejected comment is never raised again** — deleting or resolving one is a permanent no
-- **You can supply what the PR does not say** — `--prompt "this is a revert of #892"` or `"the retry loop is deliberate"`, and every file is reviewed knowing it
+- **You can supply what the PR does not say** — `--prompt "this is a revert of #892"`
 
 The full mechanism: [how a review runs](docs/how-it-works.zh.md) (Chinese).
 
