@@ -14,6 +14,9 @@ import { reviewUnit } from "./review-agent.js";
 import { type PrRuleContext, redactHits, runRules } from "./rules-engine.js";
 import { estimateTokens, planUnits } from "./units.js";
 
+/** Share of the limit held back for the pull-request pass. */
+const CROSS_FILE_BUDGET_SHARE = 0.15;
+
 export interface PipelineDeps {
   adapter: PlatformAdapter;
   models: Models;
@@ -101,6 +104,13 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
     squeezed: store.current.squeezed,
   });
   budget.onEvent((event) => emit({ type: "budget", ...event }));
+  // Held back so the sweep downgrades itself rather than starving the pass that
+  // runs after it. A share rather than a fixed amount, because the limit is the
+  // only signal available about how large this pull request is expected to be:
+  // on a comfortable budget it never binds, and on a tight one it decides which
+  // of the two gets cut — coverage, which the free rules partly stand in for,
+  // or the only pass that can see two files at once.
+  if (wantsCrossFile) budget.reserveFor(budget.limit * CROSS_FILE_BUDGET_SHARE);
 
   emit({
     type: "run_start",
@@ -150,6 +160,8 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
     const state = store.unit(unit.id);
     if (!state || state.status === "done" || state.status === "skipped") continue;
     const isCrossFile = unit.id === CROSS_FILE_UNIT_ID;
+    // The share was held for exactly this; from here on the full limit applies.
+    if (isCrossFile) budget.releaseReserve();
 
     // Out of money, but the deterministic pass costs nothing and produces the
     // highest-value findings — running it anyway is what makes a budget-stopped

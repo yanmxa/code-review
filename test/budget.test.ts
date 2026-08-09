@@ -264,3 +264,45 @@ describe("budget limits round-trip", () => {
     }
   });
 });
+
+describe("holding budget back for work still to come", () => {
+  it("stops the sweep early enough to leave the reserve intact", () => {
+    // The pull-request pass runs last, which made it the cheapest thing to
+    // sacrifice: it inherited the ladder's lowest rung and a run that hit the
+    // limit dropped it without saying so.
+    const budget = new BudgetManager(config());
+    budget.reserveFor(1.5);
+    spendCny(budget, 8.6);
+    expect(budget.checkExhausted()).toBe(true);
+    // And the number the user typed is still the number on the gauge.
+    expect(budget.limit).toBe(10);
+  });
+
+  it("un-latches when the reserve becomes the work being done", () => {
+    const budget = new BudgetManager(config());
+    budget.reserveFor(1.5);
+    spendCny(budget, 8.6);
+    expect(budget.checkExhausted()).toBe(true);
+    budget.releaseReserve();
+    expect(budget.checkExhausted()).toBe(false);
+    expect(budget.authorize().allowed).toBe(true);
+  });
+
+  it("stays stopped when the money is genuinely gone", () => {
+    const budget = new BudgetManager(config());
+    budget.reserveFor(1.5);
+    spendCny(budget, 10.4);
+    expect(budget.checkExhausted()).toBe(true);
+    budget.releaseReserve();
+    expect(budget.checkExhausted()).toBe(true);
+  });
+
+  it("steps the ladder against the working ceiling, not the full one", () => {
+    const budget = new BudgetManager(config());
+    budget.reserveFor(1.5);
+    spendCny(budget, 4.3);
+    // Forecast 8.6 — inside the ¥10 limit, over the ¥8.50 the sweep may use.
+    budget.reviewProgress(1, 2);
+    expect(budget.currentModel().id).toBe("mid");
+  });
+});

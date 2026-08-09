@@ -44,6 +44,7 @@ export class BudgetManager {
   private ledger: SpendLedger;
   private stage = 0;
   private squeezedFlag = false;
+  private reserved = 0;
   private stopped = false;
   private projection?: number;
 
@@ -74,6 +75,37 @@ export class BudgetManager {
 
   get limit(): number {
     return this.config.limit.amount;
+  }
+
+  /**
+   * The ceiling in force right now: the limit, less anything held back.
+   *
+   * The pull-request pass runs after every file, which put the most valuable
+   * work in the position that is cheapest to sacrifice — it inherited whatever
+   * rung the ladder had fallen to, and a run that hit the limit dropped it
+   * silently. Coverage is the commodity here and cross-cutting judgement is the
+   * scarce good; holding a share back means the sweep downgrades itself rather
+   * than starving the one pass nothing else can do.
+   *
+   * `limit` itself is untouched, because that is the number the user typed and
+   * the gauge has to keep showing it.
+   */
+  get workingLimit(): number {
+    return Math.max(0, this.limit - this.reserved);
+  }
+
+  /** Hold back `amount`, or a share of the limit, for work still to come. */
+  reserveFor(amount: number): void {
+    this.reserved = Math.max(0, Math.min(amount, this.limit));
+  }
+
+  /** The held-back share is now the work being done. */
+  releaseReserve(): void {
+    if (this.reserved === 0) return;
+    this.reserved = 0;
+    // Latched by a limit that no longer applies: a sweep that stopped on the
+    // reduced ceiling must not carry that stop into the pass it stopped for.
+    this.stopped = this.spent >= this.limit;
   }
 
   get unit(): BudgetConfig["limit"]["unit"] {
@@ -124,9 +156,14 @@ export class BudgetManager {
    */
   checkExhausted(): boolean {
     if (this.stopped) return true;
-    if (this.rawFraction < 1) return false;
+    if (this.workingLimit > 0 && this.spent < this.workingLimit) return false;
     this.stopped = true;
-    this.emit({ kind: "hard_stop", detail: `${this.formatted(this.spent)} / ${this.formatted(this.limit)}` });
+    const held =
+      this.reserved > 0 ? ` (${this.formatted(this.reserved)} held for the pull-request pass)` : "";
+    this.emit({
+      kind: "hard_stop",
+      detail: `${this.formatted(this.spent)} / ${this.formatted(this.limit)}${held}`,
+    });
     return true;
   }
 
@@ -153,10 +190,10 @@ export class BudgetManager {
     const progress = Math.min(1, unitsDone / unitsTotal);
     this.projection = this.spent / progress;
 
-    if (this.projection <= this.limit) return;
+    if (this.projection <= this.workingLimit) return;
 
     const over =
-      `projected ${this.formatted(this.projection)} against ${this.formatted(this.limit)} ` +
+      `projected ${this.formatted(this.projection)} against ${this.formatted(this.workingLimit)} ` +
       `after ${unitsDone}/${unitsTotal} files`;
 
     if (this.stage < this.config.models.length - 1) {

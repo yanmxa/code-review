@@ -45,6 +45,19 @@ describe("the screenshots in the READMEs", () => {
   }
 });
 
+/** GitHub's rule: lowercase, spaces to hyphens, punctuation dropped. */
+function anchorsOf(markdown: string): Set<string> {
+  return new Set(
+    [...markdown.matchAll(/^#{1,6}\s+(.+)$/gm)].map((match) =>
+      match[1]!
+        .trim()
+        .toLowerCase()
+        .replace(/[`*_[\]()]/g, "")
+        .replace(/\s+/g, "-"),
+    ),
+  );
+}
+
 describe("the links in the READMEs", () => {
   for (const file of DOCS) {
     it(`${file} points only at files that exist`, () => {
@@ -52,6 +65,21 @@ describe("the links in the READMEs", () => {
       const targets = [...markdown.matchAll(/\]\((?!https?:)([^)#]+)/g)].map((match) => match[1]!);
       const missing = targets.filter((target) => !existsSync(join(ROOT, target)));
       expect(missing).toEqual([]);
+    });
+
+    it(`${file} points only at headings that exist`, () => {
+      // Renaming a heading breaks every link into it and nothing complains —
+      // shortening this document silently broke two.
+      const markdown = readFileSync(join(ROOT, file), "utf8");
+      const broken: string[] = [];
+      for (const match of markdown.matchAll(/\]\((?!https?:)([^)#]*)#([^)]+)\)/g)) {
+        const target = match[1]!;
+        const anchor = decodeURIComponent(match[2]!);
+        const path = join(ROOT, target || file);
+        if (!existsSync(path)) continue;
+        if (!anchorsOf(readFileSync(path, "utf8")).has(anchor)) broken.push(`${target}#${anchor}`);
+      }
+      expect(broken).toEqual([]);
     });
   }
 });

@@ -19,7 +19,7 @@ The full mechanism: [how a review runs](docs/how-it-works.zh.md) (Chinese).
 
 **Whether the tool itself is trustworthy**
 
-- **Survives being killed** — run the same command again and it picks up where it stopped ([why](docs/how-it-works.zh.md#断点续跑的原理))
+- **Survives being killed** — run the same command again and it picks up where it stopped ([why](docs/how-it-works.zh.md#断点续跑))
 - **Stays inside a budget** — downgrades the model as spend rises, stops at the limit, still finishes the zero-cost checks
 - **Every finding is traceable** — full prompt, raw model response, and tool calls in one file
 - **Secrets never leave the machine** — redaction is type-enforced; the repo is never cloned and no repo code runs
