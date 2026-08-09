@@ -45,14 +45,20 @@ describe("the screenshots in the READMEs", () => {
   }
 });
 
-/** GitHub's rule: lowercase, spaces to hyphens, punctuation dropped. */
+/**
+ * GitHub's rule: lowercase, spaces to hyphens, punctuation dropped.
+ *
+ * Punctuation includes the fullwidth kind. A Chinese heading with a colon in it
+ * gets that colon removed, so a link written with it would 404 while a naive
+ * check here waved it through.
+ */
 function anchorsOf(markdown: string): Set<string> {
   return new Set(
     [...markdown.matchAll(/^#{1,6}\s+(.+)$/gm)].map((match) =>
       match[1]!
         .trim()
         .toLowerCase()
-        .replace(/[`*_[\]()]/g, "")
+        .replace(/[^\p{L}\p{N}\s-]/gu, "")
         .replace(/\s+/g, "-"),
     ),
   );

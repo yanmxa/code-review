@@ -20,10 +20,10 @@ The full mechanism: [how a review runs](docs/how-it-works.zh.md) (Chinese).
 **Whether the tool itself is trustworthy**
 
 - **Survives being killed** — run the same command again and it picks up where it stopped ([why](docs/how-it-works.zh.md#断点续跑))
-- **Stays inside a budget** — downgrades the model as spend rises, stops at the limit, still finishes the zero-cost checks
-- **Every finding is traceable** — full prompt, raw model response, and tool calls in one file
-- **Secrets never leave the machine** — redaction is type-enforced; the repo is never cloned and no repo code runs
-- **Rules and review focus are configurable** — a project writes its own checks and priorities in config, not in a fork
+- **Stays inside a budget** — downgrades the model as spend rises, stops at the limit, still finishes the zero-cost checks ([budget](docs/configuration.zh.md#budget))
+- **Every finding is traceable** — full prompt, raw model response, and tool calls in one file ([trace](docs/how-it-works.zh.md#trace-与否决记忆))
+- **Secrets never leave the machine** — redaction is type-enforced; the repo is never cloned and no repo code runs ([worked example](docs/how-it-works.zh.md#例一一个被提交进来的密钥))
+- **Rules and review focus are configurable** — a project writes its own checks ([rules](docs/configuration.zh.md#rules)) and priorities ([review](docs/configuration.zh.md#review)) in config, not in a fork
 
 ---
 
@@ -32,6 +32,7 @@ The full mechanism: [how a review runs](docs/how-it-works.zh.md) (Chinese).
 ```bash
 git clone https://github.com/yanmxa/code-review && cd code-review
 npm install -g .                       # builds and puts `code-review` on your PATH
+                                       # (remove later: npm uninstall -g code-review)
 
 export OPENAI_API_KEY=sk-...           # or MOONSHOT / ANTHROPIC / OPENROUTER
 gh auth login                          # or export GITHUB_TOKEN
@@ -47,39 +48,10 @@ Prefer not to install globally: `npm install && npm run dev -- <pr-url>`.
 
 ### Verify the claims yourself
 
-These are not test assertions; they are commands you can run. The demo PR has
-six planted defects.
-
-```bash
-PR=https://github.com/yanmxa/code-review/pull/1
-
-# Resume: kill it mid-run, then re-run the same command
-code-review $PR --budget 6 &
-sleep 30 && pkill -f "code-review $PR"
-code-review $PR --budget 6            # redoes only the interrupted file, no double billing
-
-# Downgrade: switches to a cheaper model when projected to overrun
-code-review $PR --budget 0.30 --fresh --no-tui | grep downgrade
-
-# Hard stop: the first file blows the budget; the rest still run the free rules
-code-review $PR --budget 0.12 --fresh --no-tui ; echo "exit $?"   # 3 = budget exhausted
-
-# Redaction: neither planted credential is in any artifact — prompts included
-grep -r "AKIAIOSFODNN7EXAMPLE" ~/.code-review/runs/   # no hits
-grep -r "wJalrXUtnFEMI" ~/.code-review/runs/          # no hits (the secret key)
-grep -rho "\[REDACTED:[a-z-]*:" ~/.code-review/runs/ | sort -u
-
-# Idempotent posting: run --post twice, nothing is duplicated
-code-review $PR --post && code-review $PR --post
-```
-
-Measured on that pull request. Resume redid only the interrupted file and
-carried the earlier spend forward rather than restarting it. With `--budget
-0.22` the first file forecast ¥0.46, which triggered a downgrade; the forecast
-then converged 0.46 → 0.27 → 0.19 and the run closed at ¥0.16, inside the limit.
-Under a hard stop 2 of 4 files reached the model, and the report still carried 8
-adoptable findings, because the deterministic checks cost nothing and kept
-running.
+Resume, budget downgrade, hard stop, redaction, idempotent posting, the
+cross-file pass, the dismissal loop — each is a command you can run against the
+demo pull request rather than a test assertion to take on trust:
+**[docs/verify.zh.md](docs/verify.zh.md)** (Chinese).
 
 ---
 
@@ -275,12 +247,13 @@ cost), `pi-agent-core` (agent loop, declarative tools), `pi-tui`
 
 | Document | Contents |
 | --- | --- |
-| [How a review runs](docs/how-it-works.zh.md) | The mechanism, following one real finding end to end |
+| [How a review runs](docs/how-it-works.zh.md) | The mechanism, following two real findings end to end |
+| [Verify it yourself](docs/verify.zh.md) | Every claim above, as a command to run |
 | [Configuration](docs/configuration.zh.md) | Every flag and field, credentials, adding a tool |
 | [Design notes](docs/design.zh.md) | The tradeoffs, and what each one gave up |
 | [`examples/`](examples/) | Real artifacts: [report](examples/sample-report.en.md) · [trace](examples/sample-trace.jsonl) · [checkpoint](examples/sample-state.json) |
 
-The three documents are in Chinese; the examples are not.
+The documents are in Chinese; the examples are not.
 
 ---
 

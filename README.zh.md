@@ -19,10 +19,10 @@
 **它作为工具是否可信**
 
 - **断网重启不重跑** —— 崩了就重跑同一条命令，自动接着上次继续（[原理](docs/how-it-works.zh.md#断点续跑)）
-- **花费有上限** —— 预算超了自动降级模型，再超就停，但零成本的规则检查照常跑完
-- **每条意见可追溯** —— 完整 prompt、模型原始回复、工具调用全在一个 trace 文件里
-- **密钥不出本机** —— 脱敏由类型系统强制，不 clone 仓库、不执行任何仓库代码
-- **规则和评审重点可配置** —— 项目自己的检查和关注点写在配置里，不用改源码
+- **花费有上限** —— 预算超了自动降级模型，再超就停，但零成本的规则检查照常跑完（[budget](docs/configuration.zh.md#budget)）
+- **每条意见可追溯** —— 完整 prompt、模型原始回复、工具调用全在一个 trace 文件里（[trace](docs/how-it-works.zh.md#trace-与否决记忆)）
+- **密钥不出本机** —— 脱敏由类型系统强制，不 clone 仓库、不执行任何仓库代码（[实例](docs/how-it-works.zh.md#例一一个被提交进来的密钥)）
+- **规则和评审重点可配置** —— 项目自己的检查（[rules](docs/configuration.zh.md#rules)）和关注点（[review](docs/configuration.zh.md#review)）写在配置里，不用改源码
 
 ---
 
@@ -31,6 +31,7 @@
 ```bash
 git clone https://github.com/yanmxa/code-review && cd code-review
 npm install -g .                       # 编译并把 code-review 装到 PATH
+                                       # （卸载：npm uninstall -g code-review）
 
 export OPENAI_API_KEY=sk-...           # 也支持 MOONSHOT / ANTHROPIC / OPENROUTER
 gh auth login                          # 或 export GITHUB_TOKEN
@@ -45,34 +46,9 @@ code-review https://github.com/yanmxa/code-review/pull/1 --budget 6
 
 ---
 
-### 自己验证一下
+### 自己验一遍
 
-这些不是单测断言，是可以直接复现的命令。演示 PR 里埋了 6 个缺陷。
-
-```bash
-PR=https://github.com/yanmxa/code-review/pull/1
-
-# 断点续跑：跑一半 kill 掉，重跑同一条命令
-code-review $PR --budget 6 &
-sleep 30 && pkill -f "code-review $PR"
-code-review $PR --budget 6            # 只重跑被打断的那个文件，其余不重复计费
-
-# 预算降级：预计会超支时自动切到更便宜的模型
-code-review $PR --budget 0.30 --fresh --no-tui | grep downgrade
-
-# 预算硬停：第一个文件就超预算，剩下的仍跑完免费的规则检查
-code-review $PR --budget 0.12 --fresh --no-tui ; echo "退出码 $?"   # 3 = 预算耗尽
-
-# 脱敏：埋进 PR 的两个凭据在任何产物里都搜不到原值（含发给模型的 prompt）
-grep -r "AKIAIOSFODNN7EXAMPLE" ~/.code-review/runs/  # 零命中
-grep -r "wJalrXUtnFEMI" ~/.code-review/runs/         # 零命中（secret key）
-grep -rho "\[REDACTED:[a-z-]*:" ~/.code-review/runs/ | sort -u
-
-# 幂等回评：连跑两次 --post，第二次不会重复发
-code-review $PR --post && code-review $PR --post
-```
-
-实测结果：续跑时只重跑被打断的那个文件，已花的钱接着累加而不是从零开始；`--budget 0.22` 时跑完第 1 个文件就预测会花 ¥0.46 而降级，预测随后收敛 0.46 → 0.27 → 0.19，最终 ¥0.16 落在预算内；硬停时 4 个文件只有 2 个过了 LLM，报告里仍有 8 条可采纳意见——确定性检查不花钱，照跑。
+续跑、预算降级、硬停、脱敏、幂等回评、跨文件那一趟、否决闭环——每条都是可以直接敲的命令，不是让你相信的测试断言：**[docs/verify.zh.md](docs/verify.zh.md)**。
 
 ---
 
@@ -261,7 +237,8 @@ src/
 
 | 文档 | 内容 |
 | --- | --- |
-| [一次评审是怎么跑完的](docs/how-it-works.zh.md) | 机制：跟着一条真实发现走完全程 |
+| [一次评审是怎么跑完的](docs/how-it-works.zh.md) | 机制：跟着两条真实发现走完全程 |
+| [自己验一遍](docs/verify.zh.md) | 上面每条说法对应的命令 |
 | [配置](docs/configuration.zh.md) | 全部参数、配置字段、凭据、怎么加工具 |
 | [设计文档](docs/design.zh.md) | 取舍：为什么这样设计，放弃了什么 |
 | [`examples/`](examples/) | 真实运行的产物：[报告](examples/sample-report.zh.md) · [trace](examples/sample-trace.jsonl) · [断点](examples/sample-state.json) |
