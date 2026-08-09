@@ -10,7 +10,8 @@ import {
 import { DEFAULT_CONFIG, type ConfigOverrides } from "../config.js";
 import { parseBudgetLimit, serializeBudgetLimit } from "../budget/limit.js";
 import {
-  buildInitConfig,
+  applyInitAnswers,
+  answersFrom,
   INIT_TEXT,
   type InitAnswers,
   type InitStrings,
@@ -55,19 +56,17 @@ export class InitWizard implements Component {
     private readonly tui: TUI,
     private readonly candidates: ModelChoice[],
     private readonly listed: ModelChoice[],
+    /** The config already on disk, if any; every question starts from it. */
+    private readonly existing: ConfigOverrides,
     private readonly done: (answers: InitAnswers | null) => void,
   ) {
-    this.answers = {
-      lang: DEFAULT_CONFIG.lang,
-      // Empty, not pre-filled with the default. A pre-filled field looks like
-      // an editable value but behaves like a prefix: typing "¥20" into "¥10.00"
-      // produced "¥10.00¥20". The default belongs behind the cursor as a hint.
-      budget: "",
-      ladder: [],
-      ignore: "",
-    };
+    // Seeded from the file, so re-running the wizard is how you change your
+    // mind about an answer rather than a way to start over. A field the file
+    // does not set stays empty and shows the built-in default behind the
+    // cursor — pre-filling that was what once made "¥20" into "¥10.00¥20".
+    this.answers = answersFrom(existing);
     this.rows = buildRows(listed, this.text);
-    this.cursor = DEFAULT_CONFIG.lang === "zh" ? 0 : 1;
+    this.cursor = this.answers.lang === "zh" ? 0 : 1;
   }
 
   invalidate(): void {}
@@ -252,7 +251,10 @@ export class InitWizard implements Component {
       else body.push(`  ${theme.dim(GLYPH.pending)} ${theme.dim(t.steps[index] ?? "")}`);
     }
 
-    const config = buildInitConfig(this.answers);
+    const config = applyInitAnswers(this.existing, this.answers);
+    // Whatever is left after the question has had its room.
+    const rows = this.tui.terminal.rows ?? 24;
+    const previewRoom = Math.max(3, rows - body.length - 10);
     const out = [
       "",
       `  ${theme.accent(GLYPH.brand)} ${theme.strong("code-review")}  ${theme.dim(t.title)}` +
@@ -260,7 +262,7 @@ export class InitWizard implements Component {
       "",
       ...panel(body, w, { focused: true }),
       "",
-      ...panel(previewBody(config, t.previewEmpty), w, { title: theme.dim(t.preview) }),
+      ...panel(previewBody(config, t.previewEmpty, previewRoom), w, { title: theme.dim(t.preview) }),
       "",
       `  ${this.hints()}`,
     ];
@@ -473,11 +475,20 @@ function buildRows(listed: ModelChoice[], t: InitStrings): ModelRow[] {
   return rows;
 }
 
-function previewBody(config: ConfigOverrides, emptyNote: string): string[] {
+/**
+ * The file as it will be written, clipped so it cannot crowd out the question.
+ *
+ * A fresh config is three lines. One that already carries project rules and a
+ * reviewer focus is thirty, and rendering all of it pushed the thing being
+ * asked off the top of the screen — the preview is there to reassure, not to
+ * take over. What is cut is counted rather than dropped silently.
+ */
+function previewBody(config: ConfigOverrides, emptyNote: string, limit: number): string[] {
   if (Object.keys(config).length === 0) return [`  ${theme.dim(emptyNote)}`];
-  return JSON.stringify(config, null, 2)
-    .split("\n")
-    .map((line) => `  ${theme.dim(line)}`);
+  const lines = JSON.stringify(config, null, 2).split("\n");
+  const shown = lines.slice(0, limit).map((line) => `  ${theme.dim(line)}`);
+  if (lines.length > limit) shown.push(`  ${theme.dim(`… 另有 ${lines.length - limit} 行，原样保留`)}`);
+  return shown;
 }
 
 function refLabel(ref: ModelRef): string {
@@ -503,12 +514,13 @@ function padVisible(text: string, width: number): string {
 export async function runInitWizard(
   candidates: ModelChoice[],
   listed: ModelChoice[],
+  current: ConfigOverrides = {},
 ): Promise<InitAnswers | null> {
   const tui = new TuiAltScreen(new ProcessTerminal());
   tui.start();
 
   const answers = await new Promise<InitAnswers | null>((resolve) => {
-    const wizard = new InitWizard(tui, candidates, listed, resolve);
+    const wizard = new InitWizard(tui, candidates, listed, current, resolve);
     tui.addChild(wizard);
     tui.setFocus(wizard);
     tui.requestRender();

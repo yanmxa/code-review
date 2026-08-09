@@ -37,7 +37,7 @@ export OPENAI_API_KEY=sk-...           # 也支持 MOONSHOT / ANTHROPIC / OPENRO
 gh auth login                          # 或 export GITHUB_TOKEN
 
 code-review auth                       # 确认凭据已识别
-code-review init                       # 交互式选好预算和模型
+code-review init                       # 交互式选好预算和模型（想改就再跑一次）
 code-review config                     # 看这次会用什么预算和降级链
 code-review https://github.com/yanmxa/code-review/pull/1 --budget 6
 ```
@@ -156,7 +156,7 @@ code-review runs                    # 列出所有断点
 code-review triage <run-id>         # 重新打开某次运行的结果浏览器
 code-review trace <run-id> <unit>   # 打印某个单元的时间线（--json 出原始负载）
 code-review config                  # 查看这次运行会用的配置
-code-review init                    # 回答四个问题，生成配置
+code-review init                    # 交互式创建或修改配置
 code-review auth                    # 看当前找到了哪些凭据
 code-review login openai-codex      # 用 ChatGPT 订阅代替 API key
 code-review dismissed <pr-url>      # 这个仓库已经否掉过什么

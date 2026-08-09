@@ -30,7 +30,7 @@ import { parseBudgetLimit, serializeBudgetLimit } from "./budget/limit.js";
 import { BUILTIN_RULE_IDS } from "./engine/rules-engine.js";
 import {
   allModelCandidates,
-  buildInitConfig,
+  applyInitAnswers,
   INIT_TEXT,
   type ModelChoice,
   modelChoices,
@@ -369,16 +369,22 @@ function commandConfig(config: Config): number {
  */
 async function commandInit(config: Config, assumeYes: boolean): Promise<number> {
   const path = projectConfigPath();
-  if (existsSync(path)) {
-    process.stdout.write(theme.warn(`${path} already exists — leaving it alone.\n`));
-    return 1;
-  }
+  // Refusing when the file exists left the wizard usable exactly once, and the
+  // second time you wanted a different model you were back to hand-editing the
+  // JSON it exists to spare you. It edits now: every question starts from what
+  // the file says, and anything it does not ask about is written back untouched.
+  const existing: ConfigOverrides = existsSync(path) ? loadConfigFile(path) : {};
+  const updating = existsSync(path);
 
-  let chosen: ConfigOverrides = {};
-  let lang: Language = DEFAULT_CONFIG.lang;
+  let chosen: ConfigOverrides = existing;
+  let lang: Language = existing.lang ?? DEFAULT_CONFIG.lang;
   const interactive = !assumeYes && process.stdin.isTTY === true && process.stdout.isTTY === true;
 
   if (!interactive) {
+    if (updating) {
+      process.stdout.write(theme.warn(`${path} exists and this is not a terminal — leaving it alone.\n`));
+      return 1;
+    }
     if (!assumeYes) {
       process.stdout.write(
         theme.dim("Not a terminal — writing an empty config. Use -y to silence this, or run it interactively.\n"),
@@ -386,12 +392,12 @@ async function commandInit(config: Config, assumeYes: boolean): Promise<number> 
     }
   } else {
     const { candidates, listed } = await offerableModels();
-    const answers = await runInitWizard(candidates, listed);
+    const answers = await runInitWizard(candidates, listed, existing);
     if (!answers) {
       process.stdout.write(theme.dim("Cancelled — nothing written.\n"));
       return 1;
     }
-    chosen = buildInitConfig(answers);
+    chosen = applyInitAnswers(existing, answers);
     lang = answers.lang;
   }
 
@@ -445,6 +451,26 @@ function commandEditConfig(): number {
   if (!existsSync(path)) writeFileSync(path, "{\n}\n", "utf8");
   const editor = process.env.VISUAL || process.env.EDITOR || "vi";
   const result = spawnSync(editor, [path], { stdio: "inherit" });
+
+  // `status` is null both when the editor could not be started and when it was
+  // killed, so reporting it alone said "nvim exited with null" to someone whose
+  // $EDITOR simply pointed at a program that is not installed.
+  if (result.error) {
+    const missing = (result.error as NodeJS.ErrnoException).code === "ENOENT";
+    process.stderr.write(
+      theme.warn(
+        missing
+          ? `Could not start \`${editor}\` — not found on PATH.\n` +
+            `Set $EDITOR to an editor you have, or edit ${path} directly.\n`
+          : `Could not start \`${editor}\`: ${result.error.message}\n`,
+      ),
+    );
+    return 1;
+  }
+  if (result.signal) {
+    process.stderr.write(theme.warn(`${editor} was killed by ${result.signal}; ${path} left as it was.\n`));
+    return 1;
+  }
   if (result.status !== 0) {
     process.stderr.write(theme.warn(`${editor} exited with ${result.status}\n`));
     return 1;

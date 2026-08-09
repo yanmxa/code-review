@@ -1,5 +1,5 @@
 import type { Models } from "@earendil-works/pi-ai";
-import { DEFAULT_CONFIG, type ConfigOverrides, type Language } from "../config.js";
+import { DEFAULT_CONFIG, type ConfigOverrides, type Language, parseModelRef } from "../config.js";
 import { parseBudgetLimit, serializeBudgetLimit } from "../budget/limit.js";
 import type { ModelRef } from "../types.js";
 
@@ -153,42 +153,83 @@ export interface InitAnswers {
 }
 
 /**
- * The config an answer set implies — only what differs from the defaults.
+ * The config these answers imply, laid over whatever was already there.
  *
- * A config that restates the defaults is worse than no config: a reader cannot
- * tell what the project chose from what nobody got round to deleting. This is
- * one function so the live preview and the file that gets written cannot
- * disagree about what "differs" means.
+ * The wizard asks about four things and the file can hold a dozen — project
+ * rules, a reviewer focus, disabled tools. Re-running it replaces what it asked
+ * about and leaves the rest alone; otherwise one pass through the questions
+ * would silently delete a custom rule someone wrote by hand.
+ *
+ * Within its own four the answers win outright: choosing the default model
+ * *removes* a `budget.models` line rather than leaving the old one, because
+ * "keep what I picked" and "go back to the default" both have to be sayable. A
+ * blank text field is the exception — that is what pressing enter on a
+ * placeholder looks like, and it means leave this one as it is.
  */
-export function buildInitConfig(answers: InitAnswers): ConfigOverrides {
-  const chosen: ConfigOverrides = {};
-  if (answers.lang !== DEFAULT_CONFIG.lang) chosen.lang = answers.lang;
+export function applyInitAnswers(current: ConfigOverrides, answers: InitAnswers): ConfigOverrides {
+  const next: ConfigOverrides = structuredClone(current);
 
-  const defaultLimit = serializeBudgetLimit(DEFAULT_CONFIG.budget.limit);
-  const budget: { limit?: string; models?: string[] } = {};
+  if (answers.lang === DEFAULT_CONFIG.lang) delete next.lang;
+  else next.lang = answers.lang;
+
+  // `budget` is deliberately loose on disk, so it is read and written as a
+  // plain record here rather than the resolved shape.
+  const budget: Record<string, unknown> = { ...(next.budget ?? {}) };
   const typed = answers.budget.trim();
-  if (typed && typed !== defaultLimit) {
+  if (typed) {
     try {
-      budget.limit = serializeBudgetLimit(parseBudgetLimit(typed));
+      const parsed = serializeBudgetLimit(parseBudgetLimit(typed));
+      if (parsed === serializeBudgetLimit(DEFAULT_CONFIG.budget.limit)) delete budget.limit;
+      else budget.limit = parsed;
     } catch {
-      // Left out rather than guessed at: the wizard shows the preview live, so
-      // an unparseable amount simply fails to appear and says so on the row.
+      // Left as it was rather than guessed at: the preview is live and the row
+      // says it could not read the amount.
     }
   }
-
   if (answers.model) {
-    const ladder = [answers.model, ...answers.ladder].map((ref) => `${ref.provider}/${ref.id}`);
-    if (ladder.join() !== DEFAULT_CONFIG.budget.models.join()) budget.models = ladder;
+    const ladder = [answers.model, ...answers.ladder].map(refSpec);
+    // Compared as specs on both sides. The default ladder holds `ModelRef`
+    // objects, so joining it against a list of strings never matched and the
+    // key was written even when the answer was the built-in default.
+    if (ladder.join() === DEFAULT_CONFIG.budget.models.map(refSpec).join()) delete budget.models;
+    else budget.models = ladder;
   }
-  if (Object.keys(budget).length > 0) chosen.budget = budget;
+  if (Object.keys(budget).length > 0) next.budget = budget;
+  else delete next.budget;
 
+  const review = { ...(next.review ?? {}) };
   const topics = answers.ignore
     .split(/[,，]/)
     .map((topic) => topic.trim())
     .filter(Boolean);
-  if (topics.length > 0) chosen.review = { ignore: topics };
+  if (topics.length > 0) review.ignore = topics;
+  else delete review.ignore;
+  if (Object.keys(review).length > 0) next.review = review;
+  else delete next.review;
 
-  return chosen;
+  return next;
+}
+
+function refSpec(ref: ModelRef): string {
+  return `${ref.provider}/${ref.id}`;
+}
+
+/** What the wizard starts from: the file's own values, where it has them. */
+export function answersFrom(current: ConfigOverrides): InitAnswers {
+  const budget = (current.budget ?? {}) as { limit?: unknown; models?: unknown };
+  const models = Array.isArray(budget.models)
+    ? budget.models.filter((spec): spec is string => typeof spec === "string")
+    : [];
+  const refs = models.map((spec) => parseModelRef(spec));
+
+  const answers: InitAnswers = {
+    lang: current.lang ?? DEFAULT_CONFIG.lang,
+    budget: typeof budget.limit === "string" ? budget.limit : "",
+    ladder: refs.slice(1),
+    ignore: (current.review?.ignore ?? []).join(", "),
+  };
+  if (refs[0]) answers.model = refs[0];
+  return answers;
 }
 
 export interface InitStrings {

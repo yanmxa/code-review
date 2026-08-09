@@ -38,7 +38,7 @@ export OPENAI_API_KEY=sk-...           # or MOONSHOT / ANTHROPIC / OPENROUTER
 gh auth login                          # or export GITHUB_TOKEN
 
 code-review auth                       # confirm credentials are found
-code-review init                       # pick a budget and a model, interactively
+code-review init                       # pick a budget and a model (re-run it to change them)
 code-review https://github.com/yanmxa/code-review/pull/1
 ```
 
@@ -156,7 +156,7 @@ code-review runs                    # list checkpointed runs
 code-review triage <run-id>         # reopen the findings browser
 code-review trace <run-id> <unit>   # print a unit's timeline (--json for payloads)
 code-review config                  # show the configuration a run would use
-code-review init                    # write a config by answering four questions
+code-review init                    # create or edit the config, interactively
 code-review auth                    # show which credentials were found
 code-review login openai-codex      # sign in with a ChatGPT plan instead of a key
 code-review dismissed <pr-url>      # what this repository has already rejected

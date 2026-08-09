@@ -1,6 +1,6 @@
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { allModelCandidates, buildInitConfig, ladderCandidates, modelChoices, suggestLadder } from "../src/init/prompts.js";
+import { allModelCandidates, answersFrom, applyInitAnswers, ladderCandidates, modelChoices, suggestLadder } from "../src/init/prompts.js";
 import type { ModelChoice } from "../src/init/prompts.js";
 
 function registry(models: { id: string; input: number; output: number; reasoning?: boolean }[]) {
@@ -100,21 +100,21 @@ describe("the picker list", () => {
 });
 
 describe("the config an answer set implies", () => {
-  const base = { lang: "zh" as const, budget: "¥10.00", ladder: [], ignore: "" };
+  const base = { lang: "zh" as const, budget: "", ladder: [], ignore: "" };
 
   it("writes nothing when every answer is the default", () => {
-    expect(buildInitConfig(base)).toEqual({});
+    expect(applyInitAnswers({}, base)).toEqual({});
   });
 
   it("records only what differs", () => {
-    expect(buildInitConfig({ ...base, budget: "$2", ignore: "命名风格, 注释格式" })).toEqual({
+    expect(applyInitAnswers({}, { ...base, budget: "$2", ignore: "命名风格, 注释格式" })).toEqual({
       budget: { limit: "$2.00" },
       review: { ignore: ["命名风格", "注释格式"] },
     });
   });
 
   it("puts the chosen model at the head of the ladder", () => {
-    const config = buildInitConfig({
+    const config = applyInitAnswers({}, {
       ...base,
       model: { provider: "openai", id: "gpt-5.4" },
       ladder: [{ provider: "openai", id: "gpt-5.4-mini" }],
@@ -123,7 +123,7 @@ describe("the config an answer set implies", () => {
   });
 
   it("leaves an unparseable amount out rather than guessing at one", () => {
-    expect(buildInitConfig({ ...base, budget: "lots" })).toEqual({});
+    expect(applyInitAnswers({}, { ...base, budget: "lots" })).toEqual({});
   });
 });
 
@@ -199,3 +199,63 @@ describe("ladder suggestions", () => {
     expect(suggestLadder({ provider: "openai", id: "gpt-5.4-nano" }, candidates)).toEqual([]);
   });
 });
+
+describe("re-running the wizard on a config that already exists", () => {
+  const existing = {
+    lang: "en" as const,
+    budget: { limit: "¥20.00", models: ["openai/gpt-5.4", "openai/gpt-5.4-mini"] },
+    rules: { custom: [{ id: "no-legacy", severity: "major" as const, pattern: "legacy/", title: "t", body: "b" }] },
+    review: { focus: "A Go service", ignore: ["naming"] },
+    tools: { ts_syntax_check: false },
+  };
+
+  it("starts every question from what the file says", () => {
+    const answers = answersFrom(existing);
+    expect(answers.lang).toBe("en");
+    expect(answers.budget).toBe("¥20.00");
+    expect(answers.model).toEqual({ provider: "openai", id: "gpt-5.4" });
+    expect(answers.ladder).toEqual([{ provider: "openai", id: "gpt-5.4-mini" }]);
+    expect(answers.ignore).toBe("naming");
+  });
+
+  it("keeps what it never asked about", () => {
+    // Four questions, a file that can hold a dozen keys. Overwriting it whole
+    // would delete a hand-written rule for the sake of changing a model.
+    const after = applyInitAnswers(existing, answersFrom(existing));
+    expect(after.rules).toEqual(existing.rules);
+    expect(after.tools).toEqual(existing.tools);
+    expect(after.review?.focus).toBe("A Go service");
+  });
+
+  it("round-trips unchanged when every answer is accepted as-is", () => {
+    expect(applyInitAnswers(existing, answersFrom(existing))).toEqual(existing);
+  });
+
+  it("lets an answer go back to the default, not just change", () => {
+    // Keeping a key merely because the answer equals the default would leave
+    // the old ladder in place forever: there would be no way to say "actually,
+    // use the built-in one".
+    const after = applyInitAnswers(existing, {
+      ...answersFrom(existing),
+      budget: "¥10.00",
+      model: { provider: "openai", id: "gpt-5.4" },
+      ladder: [
+        { provider: "openai", id: "gpt-5.4-mini" },
+        { provider: "openai", id: "gpt-5.4-nano" },
+      ],
+    });
+    expect(after.budget).toBeUndefined();
+    expect(after.rules).toEqual(existing.rules);
+  });
+
+  it("reads a blank text field as leave-it-alone", () => {
+    // That is what pressing enter on a placeholder looks like.
+    const after = applyInitAnswers(existing, { ...answersFrom(existing), budget: "" });
+    expect((after.budget as { limit?: string }).limit).toBe("¥20.00");
+  });
+
+  it("clears the ignore list when the field is emptied", () => {
+    const after = applyInitAnswers(existing, { ...answersFrom(existing), ignore: "" });
+    expect(after.review).toEqual({ focus: "A Go service" });
+  });
+})
