@@ -135,6 +135,49 @@ describe("postFindings — idempotency", () => {
   });
 });
 
+describe("postFindings — retiring the previous run's summary", () => {
+  it("folds the old summary away once the new one is up", async () => {
+    const findings = [finding()];
+    const { adapter, snapshot, store, report } = await harness(findings);
+    adapter.existing = [{ id: 9, nodeId: "PRR_old", isSummary: true }];
+
+    await postFindings({ adapter, snapshot, store, findings, report, lang: "en" });
+    expect(adapter.minimized).toEqual(["PRR_old"]);
+  });
+
+  it("leaves the findings expanded", async () => {
+    // Only the summary goes stale each run. A finding this run did not repeat
+    // is still the last word on that line, and hiding it would erase a review
+    // nobody retracted.
+    const findings = [finding()];
+    const { adapter, snapshot, store, report } = await harness(findings);
+    adapter.existing = [{ id: 1, nodeId: "PRRC_a", fingerprint: "aaaaaaaaaa", isSummary: false }];
+
+    await postFindings({ adapter, snapshot, store, findings, report, lang: "en" });
+    expect(adapter.minimized).toEqual([]);
+  });
+
+  it("spares the comment an unanchorable review folded together", async () => {
+    // Summary and findings share one body there, so minimizing on the summary
+    // marker alone would take live findings down with it.
+    const findings = [finding()];
+    const { adapter, snapshot, store, report } = await harness(findings);
+    adapter.existing = [{ id: 3, nodeId: "IC_merged", isSummary: true, fingerprint: "bbbbbbbbbb" }];
+
+    await postFindings({ adapter, snapshot, store, findings, report, lang: "en" });
+    expect(adapter.minimized).toEqual([]);
+  });
+
+  it("touches nothing on a dry run", async () => {
+    const findings = [finding()];
+    const { adapter, snapshot, store, report } = await harness(findings);
+    adapter.existing = [{ id: 9, nodeId: "PRR_old", isSummary: true }];
+
+    await postFindings({ adapter, snapshot, store, findings, report, lang: "en", dryRun: true });
+    expect(adapter.minimized).toEqual([]);
+  });
+});
+
 describe("comment bodies", () => {
   it("embeds a fingerprint marker so the next run can recognize it", async () => {
     const findings = [finding()];

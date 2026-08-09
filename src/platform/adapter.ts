@@ -3,8 +3,16 @@ import type { Redactor } from "../security/redactor.js";
 
 /** A comment we previously posted, identified by its embedded marker. */
 export interface MarkerComment {
-  /** Provider-side id, used to update the summary comment in place. */
+  /** Provider-side id, as it appears in the host's REST responses. */
   id: string | number;
+  /**
+   * The host's graph-level handle for the same comment.
+   *
+   * GitHub's REST ids and its GraphQL node ids are different namespaces, and
+   * folding a comment away is a GraphQL-only operation — so a comment without
+   * this cannot be minimized, only read.
+   */
+  nodeId?: string;
   /** Fingerprint parsed out of the `<!-- code-review:f:... -->` marker. */
   fingerprint?: string;
   isSummary: boolean;
@@ -68,6 +76,14 @@ export interface PlatformAdapter {
   /** CI state for a commit. Implementations may return `unknown` when unavailable. */
   fetchChecks?(target: Target, ref: string): Promise<CheckSummary>;
   postReview(target: Target, payload: ReviewPayload): Promise<PostResult>;
+  /**
+   * Fold away comments an earlier run left behind.
+   *
+   * Optional, because it describes an affordance not every host has. Where it
+   * is missing the comments simply stay expanded, which is the behaviour
+   * everything here had before.
+   */
+  minimizeOutdated?(target: Target, nodeIds: string[]): Promise<void>;
 }
 
 export interface AdapterDeps {
@@ -155,8 +171,19 @@ export function findingMarker(fingerprint: string): string {
   return `<!-- code-review:f:${fingerprint} -->`;
 }
 
+/**
+ * Read our own markers back off a comment body.
+ *
+ * The two kinds are not exclusive. When a review cannot be anchored the whole
+ * thing is folded into one comment, which then carries the summary marker and
+ * the findings' markers together — so answering "summary?" and stopping loses
+ * the fingerprints, and with them the knowledge that those findings were ever
+ * posted.
+ */
 export function parseMarker(body: string): { fingerprint?: string; isSummary: boolean } {
-  if (body.includes(SUMMARY_MARKER)) return { isSummary: true };
   const match = body.match(/<!-- code-review:f:([a-f0-9]+) -->/);
-  return match?.[1] ? { fingerprint: match[1], isSummary: false } : { isSummary: false };
+  return {
+    isSummary: body.includes(SUMMARY_MARKER),
+    ...(match?.[1] ? { fingerprint: match[1] } : {}),
+  };
 }

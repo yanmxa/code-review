@@ -50,11 +50,17 @@ export async function postFindings(options: PostOptions): Promise<PostSummary> {
 
   const alreadyPosted = new Set(store.readPosted());
   let newlyDismissed = 0;
+  const superseded: string[] = [];
 
   try {
     const present = await adapter.listExistingComments(snapshot.target);
     for (const comment of present) {
       if (comment.fingerprint) alreadyPosted.add(comment.fingerprint);
+      // A summary describes one run, so the next run's summary retires it. The
+      // fingerprint check spares the folded-together comment an unanchorable
+      // review produces: it is a summary and a set of findings at once, and
+      // those findings are still live.
+      if (comment.isSummary && !comment.fingerprint && comment.nodeId) superseded.push(comment.nodeId);
     }
     // Claim what is already on the pull request before comparing against it.
     // Every one of these carries our own marker, so the pull request — not the
@@ -153,6 +159,13 @@ export async function postFindings(options: PostOptions): Promise<PostSummary> {
   // Recorded only after the host accepted them, so a failed post is retried.
   store.addPosted(postedFingerprints);
   options.memory?.recordPosted(postedRecords, snapshot.target.number);
+
+  // Only once the replacement is up: if the post had failed, the older summary
+  // would still be the best account of this pull request available, and folding
+  // it away first would have left the reader with nothing.
+  if (adapter.minimizeOutdated && superseded.length > 0) {
+    await adapter.minimizeOutdated(snapshot.target, superseded);
+  }
 
   return {
     posted: result.posted,

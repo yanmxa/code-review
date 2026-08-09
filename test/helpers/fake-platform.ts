@@ -21,6 +21,7 @@ export const TEST_TARGET: Target = {
 export class FakePlatform implements PlatformAdapter {
   readonly platform = "github" as const;
   readonly posted: ReviewPayload[] = [];
+  readonly minimized: string[] = [];
   existing: MarkerComment[] = [];
 
   constructor(
@@ -60,6 +61,10 @@ export class FakePlatform implements PlatformAdapter {
   async postReview(_target: Target, payload: ReviewPayload): Promise<PostResult> {
     this.posted.push(payload);
     return { posted: payload.comments.length, demoted: 0, url: "https://example.test/review/1" };
+  }
+
+  async minimizeOutdated(_target: Target, nodeIds: string[]): Promise<void> {
+    this.minimized.push(...nodeIds);
   }
 }
 

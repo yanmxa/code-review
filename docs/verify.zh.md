@@ -62,6 +62,8 @@ code-review $PR --post
 code-review $PR --post     # Posted 0 comment(s), skipped N already present
 ```
 
+第二趟发完，去 PR 上看：上一趟的汇总已经折叠成灰色（GitHub 记作 outdated，点开还能看），只有最新那条摊开。行内评论不折叠——一条意见没被谁撤回，它就还是那一行上的最后一句话。
+
 ## 被否掉的不再提
 
 到 PR 上删掉一条它发的评论，然后：

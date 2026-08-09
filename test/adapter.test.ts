@@ -63,6 +63,14 @@ describe("comment markers", () => {
   it("returns nothing for a human comment", () => {
     expect(parseMarker("looks good to me")).toEqual({ isSummary: false });
   });
+
+  it("reads both out of the comment an unanchorable review folds together", () => {
+    // That comment is the summary and the findings at once. Answering only
+    // "summary" would lose the fingerprint, and the next run would repost a
+    // finding that is already sitting on the pull request.
+    const body = `Report\n${SUMMARY_MARKER}\n\n${findingMarker("a1b2c3d4e5")}`;
+    expect(parseMarker(body)).toEqual({ fingerprint: "a1b2c3d4e5", isSummary: true });
+  });
 });
 
 describe("what a failed request tells the person who ran it", () => {

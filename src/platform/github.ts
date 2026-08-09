@@ -160,7 +160,7 @@ export class GitHubAdapter implements PlatformAdapter {
     // silently suppressing them.
     const resolvedIds = await this.resolvedCommentIds(target).catch(() => undefined);
 
-    const inline = await this.paginate<{ id: number; body: string }>(
+    const inline = await this.paginate<GitHubComment>(
       `${repo}/pulls/${target.number}/comments?per_page=100`,
     );
     for (const comment of inline) {
@@ -168,18 +168,32 @@ export class GitHubAdapter implements PlatformAdapter {
       if (!marker.fingerprint && !marker.isSummary) continue;
       out.push({
         id: comment.id,
+        ...(comment.node_id ? { nodeId: comment.node_id } : {}),
         ...marker,
         ...(resolvedIds ? { resolved: resolvedIds.has(comment.id) } : {}),
       });
     }
 
-    // The run summary lives on the issue timeline, not the review thread.
-    const issue = await this.paginate<{ id: number; body: string }>(
-      `${repo}/issues/${target.number}/comments?per_page=100`,
-    );
-    for (const comment of issue) {
-      const marker = parseMarker(comment.body ?? "");
-      if (marker.fingerprint || marker.isSummary) out.push({ id: comment.id, ...marker });
+    // The summary lands in one of two places depending on whether the run had
+    // anything to anchor: the body of the review itself, or — when there were
+    // no inline comments to carry it — a plain comment on the issue timeline.
+    // REST keeps those in separate lists, so finding a previous run's summary
+    // means asking for both.
+    const summaryLists = [
+      `${repo}/pulls/${target.number}/reviews`,
+      `${repo}/issues/${target.number}/comments`,
+    ];
+    for (const list of summaryLists) {
+      const comments = await this.paginate<GitHubComment>(`${list}?per_page=100`);
+      for (const comment of comments) {
+        const marker = parseMarker(comment.body ?? "");
+        if (!marker.fingerprint && !marker.isSummary) continue;
+        out.push({
+          id: comment.id,
+          ...(comment.node_id ? { nodeId: comment.node_id } : {}),
+          ...marker,
+        });
+      }
     }
 
     return out;
@@ -245,10 +259,6 @@ export class GitHubAdapter implements PlatformAdapter {
    * deletion — and GitHub exposes it only through GraphQL.
    */
   private async resolvedCommentIds(target: Target): Promise<Set<number>> {
-    const endpoint = target.apiBase.replace(/\/api\/v3$/, "/api/graphql").replace(
-      "https://api.github.com",
-      "https://api.github.com/graphql",
-    );
     const query = `
       query($owner:String!,$repo:String!,$number:Int!){
         repository(owner:$owner,name:$repo){
@@ -260,17 +270,11 @@ export class GitHubAdapter implements PlatformAdapter {
         }
       }`;
 
-    const response = await this.fetchImpl(endpoint, {
-      method: "POST",
-      headers: this.headers("application/json"),
-      body: JSON.stringify({
-        query,
-        variables: { owner: target.owner, repo: target.repo, number: target.number },
-      }),
+    const payload = await this.graphql<GraphQlThreads>(target, query, {
+      owner: target.owner,
+      repo: target.repo,
+      number: target.number,
     });
-    if (!response.ok) throw await HttpError.from(response, endpoint);
-
-    const payload = (await response.json()) as GraphQlThreads;
     const ids = new Set<number>();
     for (const thread of payload.data?.repository?.pullRequest?.reviewThreads?.nodes ?? []) {
       if (!thread.isResolved) continue;
@@ -281,15 +285,44 @@ export class GitHubAdapter implements PlatformAdapter {
     return ids;
   }
 
-  /** Replace the previous run's summary instead of stacking a new one. */
-  async updateSummary(target: Target, commentId: string | number, body: string): Promise<void> {
-    await this.request(
-      `${target.apiBase}/repos/${target.owner}/${target.repo}/issues/comments/${commentId}`,
-      { method: "PATCH", body: JSON.stringify({ body }) },
-    );
+  /**
+   * Collapse comments from an earlier run.
+   *
+   * GitHub calls this minimizing; on the page it reads as a greyed-out box the
+   * reader can still expand. Nothing is edited and nothing is deleted, which
+   * matters twice over: the history stays legible, and the comment keeps
+   * answering `listExistingComments`, so folding one away is never mistaken for
+   * a maintainer deleting it.
+   *
+   * The mutation takes one subject at a time and is offered only over GraphQL.
+   * Each failure is swallowed on its own — by the time this runs the review is
+   * already posted, and a comment that would not fold is a cosmetic loss, not a
+   * reason to report the run as failed.
+   */
+  async minimizeOutdated(target: Target, nodeIds: string[]): Promise<void> {
+    const mutation = `
+      mutation($id:ID!){
+        minimizeComment(input:{subjectId:$id, classifier:OUTDATED}){ clientMutationId }
+      }`;
+    for (const id of nodeIds) {
+      await this.graphql(target, mutation, { id }).catch(() => undefined);
+    }
   }
 
   // -------------------------------------------------------------------------
+
+  private async graphql<T>(target: Target, query: string, variables: object): Promise<T> {
+    const endpoint = target.apiBase
+      .replace(/\/api\/v3$/, "/api/graphql")
+      .replace("https://api.github.com", "https://api.github.com/graphql");
+    const response = await this.fetchImpl(endpoint, {
+      method: "POST",
+      headers: this.headers("application/json"),
+      body: JSON.stringify({ query, variables }),
+    });
+    if (!response.ok) throw await HttpError.from(response, endpoint);
+    return (await response.json()) as T;
+  }
 
   private headers(accept: string): Record<string, string> {
     const headers: Record<string, string> = {
@@ -404,6 +437,13 @@ function truncate(text: string, max = 400): string {
 }
 
 export { findingMarker, SUMMARY_MARKER };
+
+/** The shape the three comment-bearing REST lists share. */
+interface GitHubComment {
+  id: number;
+  node_id?: string;
+  body?: string;
+}
 
 interface GitHubCheckRun {
   id: number;
