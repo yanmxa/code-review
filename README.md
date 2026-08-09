@@ -23,7 +23,7 @@ The full mechanism: [how a review runs](docs/how-it-works.zh.md) (Chinese).
 - **Stays inside a budget** — downgrades the model as spend rises, stops at the limit, still finishes the zero-cost checks ([budget](docs/configuration.zh.md#budget))
 - **Every finding is traceable** — full prompt, raw model response, and tool calls in one file ([trace](docs/how-it-works.zh.md#trace-与否决记忆))
 - **Secrets never leave the machine** — redaction is type-enforced; the repo is never cloned and no repo code runs ([worked example](docs/how-it-works.zh.md#例一一个被提交进来的密钥))
-- **Rules and review focus are configurable** — a project writes its own checks ([rules](docs/configuration.zh.md#rules)) and priorities ([review](docs/configuration.zh.md#review)) in config, not in a fork
+- **Rules and review focus are configurable** — a project writes its own checks and priorities in config, not in a fork ([how](docs/configuration.zh.md#配置文件))
 
 ---
 

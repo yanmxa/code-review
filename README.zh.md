@@ -22,7 +22,7 @@
 - **花费有上限** —— 预算超了自动降级模型，再超就停，但零成本的规则检查照常跑完（[budget](docs/configuration.zh.md#budget)）
 - **每条意见可追溯** —— 完整 prompt、模型原始回复、工具调用全在一个 trace 文件里（[trace](docs/how-it-works.zh.md#trace-与否决记忆)）
 - **密钥不出本机** —— 脱敏由类型系统强制，不 clone 仓库、不执行任何仓库代码（[实例](docs/how-it-works.zh.md#例一一个被提交进来的密钥)）
-- **规则和评审重点可配置** —— 项目自己的检查（[rules](docs/configuration.zh.md#rules)）和关注点（[review](docs/configuration.zh.md#review)）写在配置里，不用改源码
+- **规则和评审重点可配置** —— 项目自己的检查和关注点写在配置里，不用改源码（[怎么配](docs/configuration.zh.md#配置文件)）
 
 ---
 
