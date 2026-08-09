@@ -8,6 +8,7 @@ import { selectTools, type ToolContext } from "../tools/index.js";
 import { Tracer } from "../trace/tracer.js";
 import type { Finding, PrSnapshot, ReviewUnit, RunEventSink } from "../types.js";
 import { dedupe, gradeAgentFinding } from "./grade.js";
+import { introducedByChange } from "./introduced.js";
 import { buildCrossFilePrompt, CROSS_FILE_SYSTEM_PROMPT } from "./prompts.js";
 import { runAgentPass } from "./review-agent.js";
 
@@ -95,6 +96,7 @@ export async function reviewPullRequest(deps: CrossFileDeps): Promise<CrossFileR
       user: buildCrossFilePrompt(
         deps.snapshot,
         deps.summaries,
+        introducedByChange(deps.snapshot.files),
         deps.reported.map((finding) => ({
           path: finding.path,
           line: finding.line,

@@ -1,5 +1,6 @@
 import type { Language, ReviewConfig } from "../config.js";
 import type { CheckSummary } from "../platform/adapter.js";
+import type { Introduced } from "./introduced.js";
 import type { PrSnapshot, ReviewUnit } from "../types.js";
 import type { RuleHit } from "./rules-engine.js";
 
@@ -192,14 +193,33 @@ been read on its own.
 Each file has been reviewed in isolation and anything visible inside one file is already reported.
 Repeating it wastes the reader's attention. You are here for what isolation cannot see:
 
+**Inconsistency** — two places that no longer agree:
+
 1. A change made in one place and not in its counterpart — a caller not updated with its callee, a
    field added to a model but not to the migration, a constant duplicated and changed once.
 2. A contract altered on one side only: a signature, a return shape, an error type, a config key,
    an API route, a serialized format.
 3. A new code path that bypasses something the codebase relies on — an auth check, a validation, a
    cleanup, a lock.
-4. The change failing to do what its description says, or doing something the description does not
+
+**Incompleteness** — a change that stopped halfway:
+
+4. Something this change introduces that nothing uses: a helper written and never called, a config
+   key nothing reads, an error type nothing catches, a flag nothing branches on. The list of names
+   this pull request adds is below. For each, ask whether somewhere in this same change was
+   supposed to use it.
+5. The inverse: a place that clearly should have adopted what this change introduced and did not —
+   a new retry helper beside an unprotected call, a new validator beside unvalidated input.
+6. The change failing to do what its description says, or doing something the description does not
    mention.
+
+The difference matters because incompleteness is invisible to a per-file reviewer by construction:
+the file that introduces the thing looks perfectly finished on its own. Nobody but you is in a
+position to notice.
+
+Be careful with 4 and 5 in one direction only: a name with no caller inside this pull request may be
+used by code the pull request does not touch, or may be the first half of deliberately staged work.
+Check with \`search_diff\` and \`get_file\` before reporting, and say what you checked.
 
 ## Work like a reviewer, not a scanner
 
@@ -233,6 +253,7 @@ ${language}${projectSection(review)}`;
 export function buildCrossFilePrompt(
   snapshot: PrSnapshot,
   summaries: { unitId: string; summary: string }[],
+  introduced: Introduced[],
   reported: { path: string; line: number; title: string }[],
   lang: Language,
   note?: string,
@@ -259,6 +280,23 @@ export function buildCrossFilePrompt(
         .map((file) => `- \`${file.path}\` — ${file.change} (+${file.additions} / -${file.deletions})`)
         .join("\n"),
   );
+
+  if (introduced.length > 0) {
+    const files = introduced.filter((item) => item.kind === "file");
+    const names = introduced.filter((item) => item.kind === "export");
+    const parts2: string[] = [];
+    if (names.length > 0) {
+      parts2.push(names.map((item) => `- \`${item.name}\` — added in \`${item.path}\``).join("\n"));
+    }
+    if (files.length > 0) {
+      parts2.push(`New files: ${files.map((item) => `\`${item.path}\``).join(", ")}`);
+    }
+    parts.push(
+      `## What this change introduces\n\n${parts2.join("\n\n")}\n\n` +
+        `Each of these is something other code could now use. Where one is used nowhere — here or ` +
+        `in the code this change did not touch — that is worth a question.`,
+    );
+  }
 
   if (summaries.length > 0) {
     parts.push(
