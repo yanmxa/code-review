@@ -1,9 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const DOCS = ["README.md", "README.zh.md"];
+const DOCS = [
+  "README.md",
+  "README.zh.md",
+  "docs/how-it-works.zh.md",
+  "docs/configuration.zh.md",
+  "docs/design.zh.md",
+  "docs/verify.zh.md",
+];
 
 /** Display columns, counting CJK as two — the terminal draws these boxes that way. */
 function columns(text: string): number {
@@ -69,7 +76,7 @@ describe("the links in the READMEs", () => {
     it(`${file} points only at files that exist`, () => {
       const markdown = readFileSync(join(ROOT, file), "utf8");
       const targets = [...markdown.matchAll(/\]\((?!https?:)([^)#]+)/g)].map((match) => match[1]!);
-      const missing = targets.filter((target) => !existsSync(join(ROOT, target)));
+      const missing = targets.filter((target) => !existsSync(join(ROOT, dirname(file), target)));
       expect(missing).toEqual([]);
     });
 
@@ -81,7 +88,7 @@ describe("the links in the READMEs", () => {
       for (const match of markdown.matchAll(/\]\((?!https?:)([^)#]*)#([^)]+)\)/g)) {
         const target = match[1]!;
         const anchor = decodeURIComponent(match[2]!);
-        const path = join(ROOT, target || file);
+        const path = target ? join(ROOT, dirname(file), target) : join(ROOT, file);
         if (!existsSync(path)) continue;
         if (!anchorsOf(readFileSync(path, "utf8")).has(anchor)) broken.push(`${target}#${anchor}`);
       }
