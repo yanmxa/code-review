@@ -29,9 +29,15 @@ function certaintyNote(finding: Finding, lang: Language): string {
   return theme.dim(" · ") + paint(certaintyLabel(certainty, lang));
 }
 
-/** A named divider, so no block of text is left for the reader to classify. */
+/**
+ * A named divider, so no block of text is left for the reader to classify.
+ *
+ * Dashed rather than solid: the panel border is solid, and a section rule drawn
+ * the same way competes with it for the same job. These separate, they do not
+ * enclose.
+ */
 function section(title: string, width: number): string[] {
-  const rule = "─".repeat(Math.max(0, width - visibleWidth(title) - 3));
+  const rule = "┈".repeat(Math.max(0, width - visibleWidth(title) - 3));
   return ["", theme.dim(`${title} ${rule}`)];
 }
 
@@ -218,7 +224,7 @@ export class TriagePanel implements Component {
         certaintyNote(finding, this.lang),
     );
 
-    out.push(...section(zh ? "说明" : "What is wrong", width));
+    out.push(...section(zh ? "评审意见" : "Comment", width));
     out.push(...wrap(finding.body, width - 2).map((line) => `  ${theme.text(line)}`));
 
     // The code being talked about, before anything is proposed for it. A
