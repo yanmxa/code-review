@@ -300,7 +300,7 @@ export function buildCrossFilePrompt(
 
   if (summaries.length > 0) {
     parts.push(
-      `## What each file's own review concluded\n\n` +
+      `## What each file's change does\n\n` +
         summaries.map((entry) => `- \`${entry.unitId}\`: ${entry.summary}`).join("\n"),
     );
   }

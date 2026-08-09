@@ -81,10 +81,16 @@ export const submitFindingsTool = defineReviewTool({
             ),
           }),
         ),
-        summary: Type.String({ description: "One sentence on the overall state of this file." }),
+        summary: Type.String({
+          description:
+            "One sentence on what this file's change does — its purpose, not its problems. The " +
+            "problems are already in `findings`, and this sentence is read by a later pass that " +
+            "has to work out whether the change is complete across files, which needs to know " +
+            "what each file was for. e.g. \"Adds a retry wrapper intended for database calls.\"",
+        }),
       }),
       async execute(_toolCallId, params) {
-        const findings = params.findings as RawFinding[];
+        const { findings, summary } = params as { findings: RawFinding[]; summary?: string };
         context.report?.(`${findings.length} finding(s)`);
         return {
           content: [
@@ -93,7 +99,7 @@ export const submitFindingsTool = defineReviewTool({
               text: `Recorded ${findings.length} finding(s) for ${context.unit.id}.`,
             },
           ],
-          details: { submitted: findings } satisfies SubmitDetails,
+          details: { submitted: findings, ...(summary ? { summary } : {}) } satisfies SubmitDetails,
           // Nothing useful can follow this; spending another LLM call would be waste.
           terminate: true,
         };

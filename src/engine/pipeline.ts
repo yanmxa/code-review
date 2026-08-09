@@ -328,10 +328,14 @@ async function reviewOneUnit(
 
   return {
     findings,
+    // What the file is for, in the model's words. The count is a fallback for
+    // when it did not say — a list of complaints is a poor description, and the
+    // pull-request pass is already handed every reported finding separately.
     summary:
-      findings.length === 0
+      result.summary?.trim() ||
+      (findings.length === 0
         ? "no findings"
-        : `${findings.length} finding(s): ${findings.map((f) => f.title).slice(0, 3).join("; ")}`,
+        : `${findings.length} finding(s): ${findings.map((f) => f.title).slice(0, 3).join("; ")}`),
     spendUsd: result.spendUsd,
     status: result.status,
   };

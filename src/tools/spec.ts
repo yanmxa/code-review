@@ -85,4 +85,13 @@ export interface RawFinding {
 
 export interface SubmitDetails {
   submitted: RawFinding[];
+  /**
+   * The model's one sentence on what this file does.
+   *
+   * Asked for, and until now thrown away — which left the pull-request pass
+   * reading "2 finding(s): …" as its account of each file. That is a list of
+   * complaints, not a description, and it duplicated the reported-findings list
+   * the pass already had. What it needs is what the file is *for*.
+   */
+  summary?: string;
 }

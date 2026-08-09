@@ -457,3 +457,32 @@ describe("pipeline — the --prompt note", () => {
     expect(resumed.store.current.prompt).toBe(note);
   });
 });
+
+describe("what each file tells the pull-request pass", () => {
+  it("passes on the model's own sentence about the file", async () => {
+    // `submit_findings` asks for one sentence on what the file does and the
+    // value was dropped, leaving the pull-request pass to read "2 finding(s):
+    // …" as its account of each file — a list of complaints, not a description,
+    // and one it already had from the reported-findings list.
+    const message = fauxAssistantMessage([
+      fauxToolCall("submit_findings", {
+        findings: [],
+        summary: "Adds a retry wrapper intended for database calls.",
+      }),
+    ]);
+    message.usage = {
+      input: 100,
+      output: 10,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 110,
+      cost: { input: 0.01, output: 0.01, cacheRead: 0, cacheWrite: 0, total: 0.02 },
+    };
+
+    const { store } = await run([message, message, message]);
+    const trace = Tracer.read(store.dirs.root, "traces/#pull-request.jsonl");
+    const request = trace.find((event) => event.type === "llm_request");
+    const prompt = JSON.stringify(request);
+    expect(prompt).toContain("Adds a retry wrapper intended for database calls.");
+  });
+})

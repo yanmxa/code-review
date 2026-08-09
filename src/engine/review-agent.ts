@@ -22,6 +22,8 @@ import { buildUnitPrompt, SYSTEM_PROMPT } from "./prompts.js";
 
 export interface UnitReviewResult {
   raw: RawFinding[];
+  /** The model's own sentence on what this file does, when it gave one. */
+  summary?: string;
   /** toolCallId -> tool name, so the grader can resolve cited evidence. */
   toolCallNames: Map<string, string>;
   spendUsd: number;
@@ -135,7 +137,11 @@ export async function runAgentPass(
   let turns = 0;
   // Held in an object because both fields are written from inside callbacks;
   // plain locals would be narrowed to their initializers by control-flow analysis.
-  const run: { submitted: RawFinding[] | null; stopped: UnitReviewResult["stopped"] } = {
+  const run: {
+    submitted: RawFinding[] | null;
+    summary?: string;
+    stopped: UnitReviewResult["stopped"];
+  } = {
     submitted: null,
     stopped: "max_turns",
   };
@@ -177,8 +183,9 @@ export async function runAgentPass(
       onDelta: deps.onDelta,
       onTool: deps.onTool,
       onStaticDiagnostics: deps.onStaticDiagnostics,
-      onSubmit: (findings) => {
+      onSubmit: (findings, summary) => {
         run.submitted = findings;
+        run.summary = summary;
       },
     });
   });
@@ -221,7 +228,15 @@ export async function runAgentPass(
     ...(note ? { note } : {}),
   });
 
-  return { raw, toolCallNames, spendUsd, status, note, stopped: run.stopped };
+  return {
+    raw,
+    toolCallNames,
+    spendUsd,
+    status,
+    note,
+    stopped: run.stopped,
+    ...(run.summary ? { summary: run.summary } : {}),
+  };
 }
 
 /**
@@ -367,7 +382,7 @@ function handleAgentEvent(
     onDelta?: (text: string) => void;
     onTool?: (phase: "start" | "end", name: string, summary: string, isError?: boolean) => void;
     onStaticDiagnostics?: (hits: StaticHit[]) => void;
-    onSubmit: (findings: RawFinding[]) => void;
+    onSubmit: (findings: RawFinding[], summary?: string) => void;
   },
 ): void {
   switch (event.type) {
@@ -403,7 +418,7 @@ function handleAgentEvent(
 
       if (event.toolName === "submit_findings" && !event.isError) {
         const details = result?.details as SubmitDetails | undefined;
-        if (details?.submitted) handlers.onSubmit(details.submitted);
+        if (details?.submitted) handlers.onSubmit(details.submitted, details.summary);
       }
 
       // Diagnostics are captured from the tool's own structured output rather
