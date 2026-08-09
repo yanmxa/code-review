@@ -8,6 +8,7 @@ import { selectTools } from "../tools/index.js";
 import type { ToolContext } from "../tools/spec.js";
 import { Tracer } from "../trace/tracer.js";
 import type { Finding, PrSnapshot, ReviewUnit, RunEventSink, Target } from "../types.js";
+import { CROSS_FILE_UNIT_ID, crossFileUnit, reviewPullRequest } from "./cross-file.js";
 import { dedupe, findingFromRule, gradeAgentFinding } from "./grade.js";
 import { reviewUnit } from "./review-agent.js";
 import { type PrRuleContext, redactHits, runRules } from "./rules-engine.js";
@@ -88,6 +89,9 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
   }
 
   const { units, skipped } = planUnits(snapshot.files, config.maxUnitDiffLines);
+  // Worth doing only when there is more than one file to hold in mind at once.
+  const wantsCrossFile = units.length > 1;
+  if (wantsCrossFile) units.push(crossFileUnit());
   const ruleContext: PrRuleContext = { changedPaths: snapshot.files.map((file) => file.path) };
   store.initUnits(units.map((unit) => ({ id: unit.id, path: unit.path })));
 
@@ -145,6 +149,7 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
   for (const unit of units) {
     const state = store.unit(unit.id);
     if (!state || state.status === "done" || state.status === "skipped") continue;
+    const isCrossFile = unit.id === CROSS_FILE_UNIT_ID;
 
     // Out of money, but the deterministic pass costs nothing and produces the
     // highest-value findings — running it anyway is what makes a budget-stopped
@@ -168,15 +173,29 @@ export async function runReview(target: Target, deps: PipelineDeps): Promise<Pip
     emit({ type: "unit_start", unitId: unit.id, index: units.indexOf(unit) + 1 });
     store.markUnit(unit.id, { status: "in_progress", attempts: state.attempts + 1 });
 
-    const reviewed = await reviewOneUnit(unit, {
-      ...deps,
-      config: runConfig,
-      snapshot,
-      budget,
-      store,
-      ruleContext,
-      checks,
-    });
+    const reviewed = isCrossFile
+      ? await reviewPullRequest({
+          models: deps.models,
+          adapter: deps.adapter,
+          snapshot,
+          config: runConfig,
+          budget,
+          store,
+          redactor: deps.redactor,
+          emit,
+          ...(deps.signal ? { signal: deps.signal } : {}),
+          summaries,
+          reported: findings,
+        })
+      : await reviewOneUnit(unit, {
+          ...deps,
+          config: runConfig,
+          snapshot,
+          budget,
+          store,
+          ruleContext,
+          checks,
+        });
     const unitFindings = { ...reviewed, findings: keep(reviewed.findings) };
 
     findings.push(...unitFindings.findings);

@@ -1,5 +1,6 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { PlatformId } from "../types.js";
+import { getDiffTool, listChangedFilesTool } from "./get-diff.js";
 import { getFileTool } from "./get-file.js";
 import { searchDiffTool } from "./search-diff.js";
 import { submitFindingsTool } from "./submit-findings.js";
@@ -19,6 +20,8 @@ import type { ToolContext, ToolSpec } from "./spec.js";
  * survives bundling, and makes the enabled set reviewable in one glance.
  */
 export const TOOL_REGISTRY: ToolSpec[] = [
+  listChangedFilesTool,
+  getDiffTool,
   getFileTool,
   searchDiffTool,
   tsSyntaxCheckTool,

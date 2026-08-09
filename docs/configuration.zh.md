@@ -133,6 +133,7 @@ code-review undismiss <pr-url> <fp> # 撤销某一条否决
 
   "lang": "zh",
   "maxTurnsPerUnit": 6,          // 单个文件最多几轮 agent 循环
+  "maxTurnsPerPullRequest": 14,  // PR 整体那一趟最多几轮（它要先摸清全貌，需要更多）
   "fileContextLines": 2000       // get_file 一次最多返回多少行
 }
 ```

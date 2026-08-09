@@ -96,6 +96,7 @@ describe("pipeline — end to end, offline", () => {
         },
       ]),
       submitMessage([]),
+      submitMessage([]), // the pull-request pass
     ]);
 
     expect(findings.length).toBeGreaterThan(0);
@@ -226,7 +227,7 @@ describe("pipeline — resume", () => {
     const adapter = new FakePlatform(SAMPLE_DIFF);
     const redactor = new Redactor();
 
-    const first = scriptedModels([submitMessage([]), submitMessage([])]);
+    const first = scriptedModels([submitMessage([]), submitMessage([]), submitMessage([])]);
     await runReview(TEST_TARGET, {
       adapter,
       models: first.models,
@@ -257,7 +258,7 @@ describe("pipeline — resume", () => {
     const adapter = new FakePlatform(SAMPLE_DIFF);
     const redactor = new Redactor();
 
-    const first = scriptedModels([submitMessage([]), submitMessage([])]);
+    const first = scriptedModels([submitMessage([]), submitMessage([]), submitMessage([])]);
     await runReview(TEST_TARGET, { adapter, models: first.models, redactor, config: config(), emit: () => {} });
 
     const second = scriptedModels([submitMessage([]), submitMessage([])]);
@@ -309,7 +310,7 @@ describe("pipeline — findings on disk", () => {
     const adapter = new FakePlatform(SAMPLE_DIFF);
     const redactor = new Redactor();
 
-    const first = scriptedModels([submitMessage([]), submitMessage([])]);
+    const first = scriptedModels([submitMessage([]), submitMessage([]), submitMessage([])]);
     const { store } = await runReview(TEST_TARGET, {
       adapter,
       models: first.models,
@@ -413,7 +414,7 @@ describe("pipeline — the --prompt note", () => {
     const adapter = new FakePlatform(SAMPLE_DIFF);
     const note = "This is a revert of #892; treat the deletions as intentional.";
 
-    const first = scriptedModels([submitMessage([]), submitMessage([])]);
+    const first = scriptedModels([submitMessage([]), submitMessage([]), submitMessage([])]);
     const { store } = await runReview(TEST_TARGET, {
       adapter,
       models: first.models,
@@ -436,7 +437,7 @@ describe("pipeline — the --prompt note", () => {
     const adapter = new FakePlatform(SAMPLE_DIFF);
     const note = "Only the auth changes matter here.";
 
-    const first = scriptedModels([submitMessage([]), submitMessage([])]);
+    const first = scriptedModels([submitMessage([]), submitMessage([]), submitMessage([])]);
     await runReview(TEST_TARGET, {
       adapter,
       models: first.models,

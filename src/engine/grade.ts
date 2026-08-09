@@ -2,7 +2,15 @@ import { createHash } from "node:crypto";
 import { commentableLines, snapToCommentable } from "../platform/diff.js";
 import type { EvidenceKind } from "../tools/spec.js";
 import type { RawFinding } from "../tools/spec.js";
-import type { Certainty, Confidence, Evidence, Finding, ReviewUnit, Severity } from "../types.js";
+import type {
+  Certainty,
+  Confidence,
+  DiffHunk,
+  Evidence,
+  Finding,
+  ReviewUnit,
+  Severity,
+} from "../types.js";
 import type { RuleHit } from "./rules-engine.js";
 
 /** How far from a rule/static hit a finding may sit and still claim its evidence. */
@@ -17,6 +25,16 @@ export interface GradeContext {
   evidenceKinds: Map<string, EvidenceKind>;
   /** Static diagnostics observed during the unit, keyed by "path:line". */
   staticHits: { toolId: string; path: string; line: number; diagnostic: string }[];
+  /**
+   * Hunks to anchor against, when the finding may be about a file other than
+   * the unit's own.
+   *
+   * The per-file pass can only legitimately talk about its own file, so its
+   * anchor check is `unit.hunks`. The pull-request pass exists precisely to
+   * talk about two files at once, and anchoring it to one of them would throw
+   * away every finding it was created to make.
+   */
+  hunksFor?: (path: string) => DiffHunk[] | undefined;
 }
 
 /**
@@ -55,11 +73,13 @@ export function findingFromRule(hit: RuleHit, unit: ReviewUnit, tracePath: strin
  *    well-supported gets that citation removed, not rewarded.
  */
 export function gradeAgentFinding(raw: RawFinding, context: GradeContext): Finding | null {
-  const commentable = commentableLines(context.unit.hunks);
+  const path = raw.path?.trim() || context.unit.path;
+  const hunks = context.hunksFor?.(path) ?? (path === context.unit.path ? context.unit.hunks : undefined);
+  if (!hunks) return null;
+
+  const commentable = commentableLines(hunks);
   const line = snapToCommentable(Math.round(raw.line), commentable, EVIDENCE_LINE_TOLERANCE);
   if (line === null) return null;
-
-  const path = raw.path?.trim() || context.unit.path;
   const evidence: Evidence[] = [];
 
   for (const toolCallId of raw.supportingToolCalls ?? []) {

@@ -73,6 +73,41 @@ export async function reviewUnit(
   ruleHits: RuleHit[],
   deps: ReviewAgentDeps,
 ): Promise<UnitReviewResult> {
+  return runAgentPass(
+    unit,
+    {
+      system: (snippets) => SYSTEM_PROMPT(snippets, deps.config.lang, deps.config.review),
+      user: buildUnitPrompt(unit, ruleHits, deps.snapshot, deps.config.lang, deps.checks, deps.config.review.prompt),
+      nudge:
+        "You are out of turns for this file. Call submit_findings now with whatever you have. " +
+        "If you found nothing worth reporting, call it with an empty findings list.",
+    },
+    deps,
+  );
+}
+
+/** What distinguishes one pass from another: two prompts and a last word. */
+export interface PassPrompts {
+  system: (toolSnippets: string[]) => string;
+  user: string;
+  nudge: string;
+  /** Defaults to the per-file cap; the pull-request pass needs more room. */
+  maxTurns?: number;
+}
+
+/**
+ * Run one agent loop to a submission.
+ *
+ * Shared by the per-file pass and the pull-request pass, which differ only in
+ * what they ask. Everything that makes a pass safe and accountable — the budget
+ * gate, the model ladder, the trace — lives in {@link meteredStream} below and
+ * applies to both without either knowing.
+ */
+export async function runAgentPass(
+  unit: ReviewUnit,
+  prompts: PassPrompts,
+  deps: ReviewAgentDeps,
+): Promise<UnitReviewResult> {
   const { models, budget, tracer, config } = deps;
 
   const startingModel = budget.currentModel();
@@ -107,7 +142,7 @@ export async function reviewUnit(
 
   const agent = new Agent({
     initialState: {
-      systemPrompt: SYSTEM_PROMPT(selection.promptSnippets, config.lang, config.review),
+      systemPrompt: prompts.system(selection.promptSnippets),
       model: resolved,
       thinkingLevel: "low",
       tools: selection.tools,
@@ -124,7 +159,7 @@ export async function reviewUnit(
         run.stopped = "budget";
         return true;
       }
-      if (turns >= config.maxTurnsPerUnit) {
+      if (turns >= (prompts.maxTurns ?? config.maxTurnsPerUnit)) {
         run.stopped = "max_turns";
         return true;
       }
@@ -149,7 +184,7 @@ export async function reviewUnit(
   });
 
   try {
-    await agent.prompt(buildUnitPrompt(unit, ruleHits, deps.snapshot, config.lang, deps.checks, config.review.prompt));
+    await agent.prompt(prompts.user);
 
     // One nudge, whatever the reason it stopped without reporting.
     //
@@ -159,10 +194,7 @@ export async function reviewUnit(
     // and recovers it. `shouldStopAfterTurn` ends the run straight after, so
     // this can never loop.
     if (run.submitted === null && !budget.hardStopped) {
-      await agent.prompt(
-        "You are out of turns for this file. Call submit_findings now with whatever you have. " +
-          "If you found nothing worth reporting, call it with an empty findings list.",
-      );
+      await agent.prompt(prompts.nudge);
     }
   } catch (error) {
     const note = (error as Error).message;

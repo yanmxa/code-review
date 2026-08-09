@@ -164,26 +164,134 @@ export function buildUnitPrompt(
   return parts.join("\n\n");
 }
 
-/** Prompt for the PR-level pass. Operates on unit summaries, never raw diffs. */
+/**
+ * The reviewer persona for the pull-request pass.
+ *
+ * The per-file pass asks "is anything wrong in this file", which is a linter's
+ * question. This one asks a reviewer's: does the change do what it says it
+ * does, coherently, across every place it had to touch. That means it has to
+ * decide where to look, so it is given the tools to go and look — the previous
+ * version was handed a list of summaries and asked to notice things about code
+ * it could not read.
+ */
+export function CROSS_FILE_SYSTEM_PROMPT(
+  toolSnippets: string[],
+  lang: Language,
+  review?: ReviewConfig,
+): string {
+  const language =
+    lang === "zh"
+      ? "Write finding titles and bodies in Simplified Chinese. Keep code identifiers, file paths and error codes in their original form."
+      : "Write finding titles and bodies in English.";
+
+  return `You are a senior engineer reviewing a pull request as a whole, after every file has already
+been read on its own.
+
+## Your question is not "is this line wrong"
+
+Each file has been reviewed in isolation and anything visible inside one file is already reported.
+Repeating it wastes the reader's attention. You are here for what isolation cannot see:
+
+1. A change made in one place and not in its counterpart — a caller not updated with its callee, a
+   field added to a model but not to the migration, a constant duplicated and changed once.
+2. A contract altered on one side only: a signature, a return shape, an error type, a config key,
+   an API route, a serialized format.
+3. A new code path that bypasses something the codebase relies on — an auth check, a validation, a
+   cleanup, a lock.
+4. The change failing to do what its description says, or doing something the description does not
+   mention.
+
+## Work like a reviewer, not a scanner
+
+Start from what this pull request is trying to do — the title, the description, and the shape of the
+file list tell you that. Form a specific suspicion about where it could be incomplete, then go and
+check it: \`get_diff\` shows what any changed file actually did, \`get_file\` shows the code around it
+at this commit, \`search_diff\` finds a name across every change at once.
+
+Check the suspicion before reporting it. "This might not have been updated" is not a finding; the
+whole value of this pass is that you can look.
+
+## How to finish
+
+Call \`submit_findings\` exactly once. **Reporting nothing is the expected outcome for most pull
+requests** — a coherent change is the normal case, and a padded cross-file section is worse than an
+empty one because it teaches the reader to skip this whole section.
+
+Anchor each finding to a line the diff actually touches, in whichever file makes the problem
+clearest to whoever has to fix it. Say in \`reasoning\` what you checked, and be honest in
+\`certainty\`: a suspicion you confirmed by reading both sides is \`certain\`, one you inferred from a
+name is not.
+
+## Available tools
+
+${toolSnippets.map((snippet) => `- ${snippet}`).join("\n")}
+
+${language}${projectSection(review)}`;
+}
+
+/** The per-run brief: what changed, and what each file's own review concluded. */
 export function buildCrossFilePrompt(
   snapshot: PrSnapshot,
   summaries: { unitId: string; summary: string }[],
+  reported: { path: string; line: number; title: string }[],
   lang: Language,
+  note?: string,
 ): string {
-  return [
-    `# Pull request\n\nTitle: ${snapshot.meta.title}\nBranch: ${snapshot.meta.sourceBranch} → ${snapshot.meta.targetBranch}`,
-    `# Per-file review results\n\n${summaries
-      .map((entry) => `- \`${entry.unitId}\`: ${entry.summary}`)
-      .join("\n")}`,
-    `Each file above was reviewed on its own. Look for problems that only appear when you consider ` +
-      `the change as a whole: a change made in one file but not its counterpart, an interface altered ` +
-      `on one side only, a migration applied inconsistently.\n\n` +
-      `Use search_diff to check suspicions against the actual changed lines. Report only cross-file ` +
-      `problems — anything visible within a single file has already been covered. Reporting nothing ` +
-      `is the expected outcome for most pull requests.\n\n` +
-      `Anchor each finding to a real changed line and call submit_findings when done.`,
-    lang === "zh" ? "用简体中文书写结论。" : "Write your conclusions in English.",
-  ].join("\n\n");
+  const parts: string[] = [];
+
+  parts.push(
+    `# Pull request\n\n` +
+      `Title: ${snapshot.meta.title}\n` +
+      `Branch: ${snapshot.meta.sourceBranch} → ${snapshot.meta.targetBranch}\n` +
+      `Author: ${snapshot.meta.author}`,
+  );
+
+  const description = snapshot.meta.description.trim();
+  parts.push(
+    description.length > 0
+      ? `## What it says it does\n\n${truncate(description, 3000)}`
+      : `## What it says it does\n\nNothing — the description is empty, so the code is the only account of the intent.`,
+  );
+
+  parts.push(
+    `## Files changed\n\n` +
+      snapshot.files
+        .map((file) => `- \`${file.path}\` — ${file.change} (+${file.additions} / -${file.deletions})`)
+        .join("\n"),
+  );
+
+  if (summaries.length > 0) {
+    parts.push(
+      `## What each file's own review concluded\n\n` +
+        summaries.map((entry) => `- \`${entry.unitId}\`: ${entry.summary}`).join("\n"),
+    );
+  }
+
+  // Named so they are not reported twice. Titles only: the bodies would be a
+  // large part of the context window and add nothing to "do not repeat this".
+  if (reported.length > 0) {
+    parts.push(
+      `## Already reported — do not repeat these\n\n` +
+        reported.map((item) => `- \`${item.path}:${item.line}\` ${item.title}`).join("\n"),
+    );
+  }
+
+  if (note?.trim()) {
+    parts.push(
+      `## From the person who started this review\n\n${note.trim()}\n\n` +
+        `Treat this as context about the change, not as a finding to report.`,
+    );
+  }
+
+  parts.push(
+    lang === "zh"
+      ? "现在把这次改动作为一个整体来看。先想清楚它要做什么、哪里可能没做完，再用工具去核实，最后调用 submit_findings。没有跨文件问题就报空，这是常态。"
+      : "Now look at the change as a whole. Work out what it is trying to do and where it could be " +
+        "incomplete, check that with the tools, then call submit_findings. Reporting nothing is the " +
+        "normal outcome.",
+  );
+
+  return parts.join("\n\n");
 }
 
 function truncate(text: string, max: number): string {

@@ -17,6 +17,15 @@ export interface Config {
   lang: Language;
   /** Max turns a single review unit may take before it is forced to submit. */
   maxTurnsPerUnit: number;
+  /**
+   * Turn cap for the pull-request pass, which has more ground to cover.
+   *
+   * A per-file agent starts with its file already in the prompt. This one has
+   * to find out what changed, fan out across it, and then verify a suspicion —
+   * on a four-file pull request that used most of the per-file allowance before
+   * it had a hypothesis, and it submitted only because it was told to.
+   */
+  maxTurnsPerPullRequest: number;
   /** Lines of surrounding file context the get_file tool may return. */
   fileContextLines: number;
   /** Squeezed value for the above once the budget crosses squeezeAtFraction. */
@@ -96,6 +105,7 @@ export const DEFAULT_CONFIG: Config = {
   review: { ignore: [] },
   lang: "zh",
   maxTurnsPerUnit: 6,
+  maxTurnsPerPullRequest: 14,
   fileContextLines: 2000,
   fileContextLinesSqueezed: 400,
   maxUnitDiffLines: 600,
